@@ -121,6 +121,18 @@ ok('B6 两层的展开动画对齐（#bg-stack 有 opacity/transform/transform-o
   /#bg-stack\s*\{[^}]*?transform-origin:\s*var\(--origin-x\)/.test(FLOAT_LIVE) &&
     /body\.expanded\s+#bg-stack\s*\{[^}]*?opacity:\s*1/.test(FLOAT_LIVE))
 
+/* ★ 2026-10-22 查出来的「通透度圆环无效」真凶：
+ *   拖动环写的是 `<html>` 的内联自定义属性，而暗色主题块
+ *   `body[data-ds-dark-theme] { --panel-opacity: 0.7 }` 会在 body 上再声明一次 ——
+ *   恒定值覆盖继承值 ⇒ 暗色主题下怎么拖都没反应（用户正是暗色主题）。
+ *   这条断言把「主题块只换基色、变量只在 :root 声明一次」钉死。 */
+const darkBlocks = [...FLOAT_LIVE.matchAll(/body\[data-ds-dark-theme\]\s*\{([\s\S]*?)\}/g)]
+  .map((m) => m[1])
+  .join('\n')
+ok('B7 暗色主题块不重新声明 --panel-opacity / --panel-blur（否则拖环在暗色主题下无效）',
+  darkBlocks !== '' && !/--panel-opacity\s*:/.test(darkBlocks) && !/--panel-blur\s*:/.test(darkBlocks),
+  '变量只在 :root 声明一次；主题块里再声明 = 恒定值盖掉内联值')
+
 console.log('')
 console.log('── C. 本地引擎不该说「旧后端」（规矩 ②）──')
 

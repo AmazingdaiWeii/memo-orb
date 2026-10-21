@@ -3465,6 +3465,10 @@ function main() {
       const opacity = Number(value)
       if (!Number.isFinite(opacity)) return
       document.documentElement.style.setProperty('--panel-opacity', String(opacity))
+      // ★ 同一个环**同时**改模糊半径（2026-10-22）：只改 alpha 的话，背景图不透明时
+      //   几乎看不出区别 —— 用户要的是「调毛玻璃效果」，那就得让玻璃真的更厚/更薄。
+      //   映射：0 → 8px（薄、几乎清透），1 → 44px（厚玻璃）；默认 0.7 落回 ~33px。
+      document.documentElement.style.setProperty('--panel-blur', `${Math.round(8 + opacity * 36)}px`)
     })
   }
 

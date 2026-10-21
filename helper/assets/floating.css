@@ -39,6 +39,12 @@
   --panel-opacity: 0.7;
   --panel-bg: rgba(255, 255, 255, var(--panel-opacity));
   --panel-border: rgba(0, 0, 0, 0.12);
+  /* ★ 毛玻璃「糊多厚」（2026-10-22）：环菜单外侧那颗环拖动时，除了改
+     --panel-opacity（玻璃浓淡），**同时**改这个半径。用户要的是「调毛玻璃效果」，
+     只改 alpha 的话她看不出区别（尤其在背景图不透明的时候）。
+     必须亮暗两套主题都有（同 --panel-opacity 那条的教训：只在一套里声明，
+     另一套主题下拖了等于没改）。 */
+  --panel-blur: 30px;
   /* ── 浮层菜单的毛玻璃底色（2026-10-08 用户要求强化）──────────────────
    * ★ 为什么单独给菜单一套、不复用 --panel-bg：
    *   实测（probe/ctxmenu-glass-probe.cjs）证明菜单的 backdrop-filter **是生效的**
@@ -75,7 +81,12 @@ body[data-ds-dark-theme] {
   --accent: #6ea8fe;
   --ball-shadow: 0 3px 8px rgba(0, 0, 0, 0.48);
   --panel-shadow: 0 4px 8px rgba(0, 0, 0, 0.45);
-  --panel-opacity: 0.7;
+  /* ★ 这里**不要**再声明 `--panel-opacity` / `--panel-blur`（2026-10-22 查出来的真凶）。
+   *   拖动环写的是 `<html>` 的内联自定义属性；而本块是 `body[data-ds-dark-theme]`，
+   *   在 body 上再声明一次 = 一个恒定的 0.7 **覆盖**掉从 html 继承来的新值 ⇒
+   *   **暗色主题下拖环完全没反应**（用户 config.theme=dark，所以她一直看到「无效」）。
+   *   而 `--panel-bg` 里的 `var(--panel-opacity)` 是在 body 上解析的，于是连锁锁死。
+   *   口径：变量只在 `:root` 声明一次，主题块只换「基色」。 */
   --panel-bg: rgba(21, 21, 23, var(--panel-opacity));
   --panel-border: rgba(255, 255, 255, 0.15);
   /* 暗色下菜单底色可以比亮色更厚一点，但要比旧版薄得多 ——
@@ -137,8 +148,9 @@ body {
   color: var(--black);
   /* 毛玻璃：半透明背景 + 背景模糊，糊住窗口后面的桌面内容 */
   background: var(--panel-bg);
-  backdrop-filter: blur(30px) saturate(1.5);
-  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  /* 模糊半径走变量：环菜单那颗环拖动时同时改它（见 :root 的 --panel-blur） */
+  backdrop-filter: blur(var(--panel-blur, 30px)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--panel-blur, 30px)) saturate(1.5);
   border-radius: var(--panel-radius);
   opacity: 0;
   transform-origin: var(--origin-x) var(--origin-y);
