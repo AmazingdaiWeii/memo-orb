@@ -418,6 +418,9 @@ export function createBiliHistoryPanel(options = {}) {
   async function doAct(it, action) {
     if (busy) return
     busy = keyOf(it)
+    // ★ 立刻给一句反馈（用户 2026-10-22 报「点赞投币根本不生效」）：
+    //   接口最长 12 秒超时，这段时间按钮只是变灰，看起来就像点了没反应。
+    setStatus(t('biliActDoing'))
     render()
     if (noteItem) renderNote()
     try {

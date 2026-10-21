@@ -650,6 +650,13 @@ app
            historyImage: cs(history) ? cs(history).backgroundImage : '',
            scrim: scrim ? scrim.style.opacity : null,
            stackZ: cs(stack) ? cs(stack).zIndex : '',
+           /* ★ 2026-10-22 补：背景层搬出 #panel 之后，它自己也有 opacity/transform 动画。
+              只查 .bg-layer 是不够的 —— 外层 #bg-stack 若停在 opacity:0，
+              三个槽的图再对也一个像素都看不见（这类「静默消失」踩过好几次）。 */
+           stackOpacity: cs(stack) ? cs(stack).opacity : '',
+           stackTransform: cs(stack) ? cs(stack).transform : '',
+           /* #panel 自己的 opacity —— 用来钉「两层动画同步」这条契约 */
+           panelOpacity: cs(document.getElementById('panel')) ? cs(document.getElementById('panel')).opacity : '',
          }
        })()`,
     )
@@ -679,6 +686,14 @@ app
         && bgState.stackZ === '0',
       JSON.stringify(bgState),
     )
+    /* 背景层必须和面板「同进同退」：opacity 一致。
+       ★ 别写成「必须等于 1」—— 这一段是在面板**未展开**时跑的，
+         那时两层都该是 0（面板收起，背景也不该露出来）。
+         真正要防的是「面板出来了、背景层没跟上」（或者反过来），
+         所以钉的是**两者相等**这条契约。 */
+    check('S14c 背景层与面板同进同退（#bg-stack 的 opacity 必须等于 #panel）',
+      bgState.stackOpacity !== '' && bgState.stackOpacity === bgState.panelOpacity,
+      `stack=${bgState.stackOpacity} panel=${bgState.panelOpacity}`)
 
     /* ── S15 切到历史抽屉 → 视图变 history，且没设图 ⇒ 蒙层必须归零 ───────── */
     win.webContents.send('orb:ring-action', 'history')

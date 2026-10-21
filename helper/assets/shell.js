@@ -77,6 +77,7 @@ const zh = {
   biliActFav: '收藏',
   biliActFaved: '已藏',
   biliActFailed: '这个动作没成功',
+  biliActDoing: '正在发 B 站接口，稍等…',
   // ── 二级面板：概览 / 我喜欢的理由 / 想对作者说的话 ──
   biliNoteSummaryLabel: '这段视频讲了什么',
   biliNoteSummaryWrite: '让她写概览',
@@ -316,6 +317,7 @@ const en = {
   biliActFav: 'Save',
   biliActFaved: 'Saved',
   biliActFailed: 'That did not go through',
+  biliActDoing: 'Sending to Bilibili…',
   biliNoteReasonLabel: 'Why I liked it',
   biliNoteCommentLabel: 'What I want to say to the creator',
   // ── 二级面板：概览 / 喜欢的理由 / 想对作者说的话 ──
