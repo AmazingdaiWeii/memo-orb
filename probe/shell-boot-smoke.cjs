@@ -653,32 +653,30 @@ app
          }
        })()`,
     )
-    /* ★ 背景必须被「糊」（2026-10-22 用户报「排版乱」查出来的）。
-     *   用户的 chat 槽是「星空+樱花+萤火虫」那种满图，不糊的话正文直接压在高对比
-     *   花纹上，几乎读不了。糊法有两种，任意一种成立即可：
-     *     ① 母本原版：`#panel { backdrop-filter: blur(30px) }` —— 糊窗口后面的东西；
-     *     ② 给 `.bg-layer` 自己加 `filter: blur()` —— 糊这张图本身。
-     *   两条同时开会太糊（文字边缘发虚），所以只认「至少有一种」。
+    /* ★ 毛玻璃的口径 2026-10-22 换了（用户：「只对对话框/输入框/菜单框架生效，
+     *   不对对话背景遮罩」）：
+     *     · 必须是 `#panel { backdrop-filter: … }` —— 框架这层玻璃；
+     *     · `.bg-layer` **不许**自己 `filter: blur()` —— 那是把背景糊成雾，正好搞反。
+     *   前提是 `#bg-stack` 已搬到 `#panel` 外面（见 S14 的 z-index 断言）。
      *
-     *   ★ 这一段的血泪史（别再改反）：
-     *     母本原版本来就用 ①；我曾以为「#panel 上的 backdrop-filter 会把透明窗口
-     *     合成成直角方块」而把毛玻璃全删了 ⇒ 背景图原样透进来 ⇒ 用户报「排版乱」。
-     *     顺带查明：用户当时说的那个「直角边框」，就是这张**方形背景图的边缘**
-     *     （图没糊、边缘清清楚楚），**不是**窗口合成的问题 —— 我当时的判断是错的。 */
+     *   ★ 血泪史（别再改反）：母本原版有 ①，我曾误判它会把透明窗口合成成直角方块
+     *     而把毛玻璃全删了 ⇒ 用户报「排版乱」；随后又按错处方给 `.bg-layer` 加了 blur
+     *     ⇒ 背景糊、框架不糊。真正的问题一直是**层叠顺序**，不是 backdrop-filter。 */
     const floatCss = readFileSync(join(ROOT, 'helper', 'assets', 'floating.css'), 'utf8')
-    check('S14b 背景被糊住了（#panel 的 backdrop-filter 或 .bg-layer 的 filter: blur，二者至少有一种）',
-      /#panel\s*\{[^}]*?backdrop-filter:/.test(floatCss)
-      || /\.bg-layer\s*\{[^}]*?filter:\s*blur\(/.test(floatCss),
-      '两种糊化一个都没有 —— 正文会直接压在背景图上（用户 2026-10-22 报「排版乱」）')
+    const floatLive = floatCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    check('S14b 毛玻璃只糊框架：面板有 backdrop-filter，且 .bg-layer 自己不许 blur',
+      /#panel\s*\{[^}]*?backdrop-filter:/.test(floatLive)
+      && !/\.bg-layer\s*\{[^}]*?filter:\s*blur\(/.test(floatLive),
+      '要么面板没玻璃，要么又把背景自己糊了（两者都不对）')
     check(
-      'S14 背景层：默认视图 chat、chat 槽按 cover 铺满、未设图的槽为空、蒙层 0.55、整层 z-index:-1',
+      'S14 背景层：默认视图 chat、chat 槽按 cover 铺满、未设图的槽为空、蒙层 0.55、整层 z-index:0（面板之上）',
       bgState.view === 'chat'
         && bgState.chatImage.includes('bg-chat-')
         && bgState.chatSize === 'cover'
         && bgState.chatOpacity === '1'
         && bgState.historyImage === 'none'
         && bgState.scrim === '0.55'
-        && bgState.stackZ === '-1',
+        && bgState.stackZ === '0',
       JSON.stringify(bgState),
     )
 

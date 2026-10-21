@@ -127,6 +127,9 @@ body {
 #panel {
   position: absolute;
   inset: var(--chrome);
+  /* ★ 2026-10-22：抬到背景层之上（背景层现在在 body 下、z-index:0）。
+     面板本身仍是半透明 + backdrop-filter —— 它现在糊的正是底下那张背景图。 */
+  z-index: 1;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -2050,12 +2053,27 @@ body.expand-down #attach-strip {
  * 蒙层压在图与文字之间：浅色主题叠白、深色叠黑，浓度由每槽的 scrim 决定
  * （JS 写 inline opacity；没设背景的视图浓度恒为 0，不会把空面板染灰）。 */
 #bg-stack {
+  /* ★ 2026-10-22：从 #panel 内部搬到 body 下（结构注释见 floating.html）。
+     位置与 #panel 完全对齐（inset 同样是 --chrome），但**层级更低**：
+     图在面板背后 ⇒ 面板的 backdrop-filter 真能糊到它，而图自己保持清晰。
+     z-index:0 与 #panel 的 1 配对；DOM 里 bg-stack 在前，双保险。 */
   position: absolute;
-  inset: 0;
-  z-index: -1;
+  inset: var(--chrome);
+  z-index: 0;
   border-radius: var(--panel-radius);
   overflow: hidden;
   pointer-events: none;
+  /* 与 #panel 的展开动画逐条对齐（opacity + scale + 同一个 origin）。
+     不对齐的话，展开瞬间会看到「图先铺满整屏、面板后到」。 */
+  opacity: 0;
+  transform-origin: var(--origin-x) var(--origin-y);
+  transform: scale(0.18);
+  transition: opacity 300ms ease-in-out, transform 300ms ease-in-out;
+}
+
+body.expanded #bg-stack {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .bg-layer {
@@ -2068,9 +2086,13 @@ body.expand-down #attach-strip {
   transition: opacity 320ms ease-in-out;
 }
 
-#panel[data-view='chat'] .bg-layer[data-slot='chat'],
-#panel[data-view='history'] .bg-layer[data-slot='history'],
-#panel[data-view='recall'] .bg-layer[data-slot='recall'] {
+/* ★ 2026-10-22：背景层搬到 #panel 外面之后，这三条必须认 body。
+   写成 `#panel[data-view=…]` 会永远匹配不到（bg-layer 已不是 panel 的后代），
+   三个槽就一直 opacity:0 —— 不报错、只是背景全没了。
+   backgrounds.js 的 setView() 现在**同时**写 panel 与 body 的 data-view。 */
+body[data-view='chat'] .bg-layer[data-slot='chat'],
+body[data-view='history'] .bg-layer[data-slot='history'],
+body[data-view='recall'] .bg-layer[data-slot='recall'] {
   opacity: 1;
 }
 
@@ -2285,22 +2307,19 @@ body[data-ds-dark-theme] #bg-scrim {
 
 
 
-/* ── 背景图必须自己糊掉（2026-10-22 用户报「排版乱」查出来的）────────────
+/* ── 背景图**不许**自己糊掉（2026-10-22 用户当面否掉了旧处方）──────────────
  *
- * ★ 母本在 `#panel` 上写了 `backdrop-filter: blur(30px)`，但**它从来没模糊过背景图** ——
- *   backdrop-filter 作用的是「该元素背后已经绘制的东西」，而 `#bg-stack`
- *   是 `#panel` 的子元素、z-index:-1，画在 panel 背景**之上** ⇒ 不在它的 backdrop 里。
- *   于是用户的「星空 + 樱花 + 萤火虫」满图原样透进来，正文直接压在高对比花纹上。
- *   （用户当时看到的那个"直角边框"，也是这张**方形图的边缘**，不是窗口合成问题。）
+ * 旧版（2026-10-21 深夜）在这里给 `.bg-layer` 加了
+ *   `filter: blur(20px) saturate(1.1); transform: scale(1.12)`
+ * —— 理由是「#bg-stack 在 #panel 里，backdrop-filter 糊不到它，只好自己糊」。
+ * 那个理由对，但**处方是反的**：用户要的是「背景清楚、对话框/输入框/菜单是毛玻璃」，
+ * 自己糊背景等于把整块对话背景压成一片雾（她 2026-10-22 原话：
+ * 「我改成了只对对话框和输入框以及其它菜单生效，不对对话背景遮罩，现在反过来了」）。
  *
- * 做法：给 `.bg-layer` 自己的渲染结果加 `filter: blur()` ——
- *   只作用于这张图，**不影响窗口合成**，面板圆角照旧。
- *   `transform: scale()` 用来抵消 blur 造成的边缘透明。
+ * 现在结构改对了（#bg-stack 搬到 #panel 外面），面板的 backdrop-filter 能真的糊到它，
+ * 所以这里**只需要保持清晰**。别再给 .bg-layer 加 filter / scale。
+ * 正文可读性由 `#bg-scrim`（蒙层浓度）+ `--panel-bg` 的半透明底色负责。
  */
-.bg-layer {
-  filter: blur(20px) saturate(1.1);
-  transform: scale(1.12);
-}
 
 /* 母本给关闭键的是 24×24 方块（与其它抽屉一致），但现在它孤零零挂在右上角，
    方块显得很重 —— 改成圆钮 + hover 才显形。 */

@@ -17,22 +17,28 @@
     <link rel="stylesheet" href="context-menu.css">
   </head>
   <body>
+    <!-- 背景层（用户 m02033）：三个页面各自一张图，随视图切换交叉淡入。
+         ★ 2026-10-22 从 #panel **内部**搬到外面（用户的抱怨：「毛玻璃作用反了」——
+           背景被糊、框架不糊，要的正好相反）。
+           根本原因：它是 #panel 的子元素，`z-index:-1` 只让它在 panel 背景之上、
+           内容之下 —— 于是 panel 自己的 `backdrop-filter` **糊不到它**
+           （backdrop 只看元素背后的已绘制内容，子元素不算），
+           而面板底色 `--panel-opacity` 又被这张图整片盖住（拖通透度圆环看不出变化，
+           正是这个原因）。
+           搬到外面之后：图在 panel **背后** ⇒ panel 的 backdrop-filter 真的糊到它，
+           而图本身不再被 `.bg-layer` 的 filter 糟蹋 ⇒ 背景清楚、框架毛玻璃。
+         ★ 动画与 #panel 完全同步（opacity + transform + transform-origin），
+           否则展开/收起时会出现「图先铺满、面板后到」的割裂。
+         ★ 位置必须在 #panel **之前**（DOM 顺序决定同 z-index 时的绘制顺序）。
+         图片文件由主进程复制进 helper/assets/backgrounds/ 后按相对路径引用
+         （与球体 GIF 同一套机制，CSP 的 img-src 'self' 直接放行）。 -->
+    <div id="bg-stack" aria-hidden="true">
+      <div class="bg-layer" data-slot="chat"></div>
+      <div class="bg-layer" data-slot="history"></div>
+      <div class="bg-layer" data-slot="recall"></div>
+      <div id="bg-scrim"></div>
+    </div>
     <section id="panel" hidden>
-      <!-- 背景层（用户 m02033）：三个页面各自一张图，随视图切换交叉淡入。
-           ★ 它是**面板内的一层 DOM**，不是第二个窗口：窗口拉伸时这层跟着
-             重排，而图片用 cover/contain/auto 适配 —— 图元一个像素都不拉伸，
-             窗口变大只是「同一张图露出更多」。
-           ★ z-index:-1 是刻意的：负层级子元素画在 #panel 自己的背景/毛玻璃
-             **之上**、所有常规流内容（对话、输入框、抽屉）**之下**，
-             不必给每个内容块补 position/z-index。
-           图片文件由主进程复制进 helper/assets/backgrounds/ 后按相对路径引用
-           （与球体 GIF 同一套机制，CSP 的 img-src 'self' 直接放行）。 -->
-      <div id="bg-stack" aria-hidden="true">
-        <div class="bg-layer" data-slot="chat"></div>
-        <div class="bg-layer" data-slot="history"></div>
-        <div class="bg-layer" data-slot="recall"></div>
-        <div id="bg-scrim"></div>
-      </div>
       <button id="history" type="button" aria-pressed="false">
         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"></circle>

@@ -4,7 +4,7 @@
  *
  * 两条规矩都是从**真实事故**里长出来的：
  *
- * ① **背景图必须被糊**
+ * ① **毛玻璃只糊框架，不糊背景图**
  *    球窗口 / 环窗口都是 `transparent: true` + `backgroundColor: "#00000000"`。
  *    Chromium 为了采样 backdrop，会把整块窗口按不透明 surface 合成 ——
  *    于是**整个窗口变成一个直角深色矩形**，面板那 36px 圆角直接失效
@@ -12,6 +12,8 @@
  *    现象：球一展开就是一个「方块」，用户 2026-10-21 深夜报「你这边框是怎么回事」。
  *    ⚠️ 这条**无头环境与任何截图断言都测不出来**（背后没有像素可采样），
  *       只有真机能看见 —— 所以只能靠静态断言钉住规则本身。
+ *    ★ 2026-10-22 更正：真正要的不是「把背景糊掉」，而是「框架是玻璃、背景是清楚的」。
+ *      做法是把 `#bg-stack` 搬出 `#panel`（见下面 B 组）。
  *
  * ② **本地引擎下不许出现「旧后端」字样**
  *    2026-10-19 断脐之后 `legacyReady` 在 `config.engine === 'local'` 下**永远是 false**
@@ -46,6 +48,7 @@ function ok(name, cond, extra = '') {
 const MAIN_JS = read('helper', 'lib', 'main.js')
 const SRC_MAIN = read('src', 'main.mjs')
 const FLOAT_CSS = read('helper', 'assets', 'floating.css')
+const FLOAT_HTML = read('helper', 'assets', 'floating.html')
 const RING_CSS = read('helper', 'assets', 'ring-menu.css')
 
 console.log('── A. 三个窗口都是透明窗口 ──')
@@ -78,31 +81,45 @@ ok('A3 面板保留 36px 圆角（这条要是没了，「直角方块」就没�
   /--panel-radius:\s*36px/.test(FLOAT_CSS) && /border-radius:\s*var\(--panel-radius\)/.test(FLOAT_CSS))
 
 console.log('')
-console.log('── B. 背景必须被糊住（这条才是真问题）──')
+console.log('── B. 毛玻璃只糊框架，不糊背景（2026-10-22 换的口径）──')
 
 /**
- * ⚠️ 这里曾经写过相反的断言（「透明窗口里不许有 backdrop-filter」）——
- *   那是**误判**：我以为 #panel 的 backdrop-filter 会把透明窗口合成成直角方块，
- *   于是把母本原版的毛玻璃全删了，结果用户的满图背景原样透进来、正文压图
- *   ⇒ 他报「排版乱」。母本本来就有 backdrop-filter，之前从没出过问题。
+ * ⚠️ 这一组**曾经写的是相反的断言**（「`.bg-layer` 必须有 filter: blur」）——
+ *   那是照着 2026-10-21 的错误处方钉的：当时以为「#bg-stack 在 #panel 里，
+ *   backdrop-filter 糊不到它，只好让它自己糊」。前半句对，处方是反的。
  *
- * ★ 真正的机制：backdrop-filter 模糊的是「元素背后已绘制的内容」，
- *   而 `#bg-stack` 是 #panel 的子元素、z-index:-1，画在 panel 背景**之上**
- *   ⇒ **它根本不在 backdrop 范围内**。所以真正管用的是给 `.bg-layer`
- *   自己加 `filter: blur()`。
+ * 用户 2026-10-22 明确：「毛玻璃只对对话框、输入框、其它菜单框架生效，
+ * 不对对话背景做遮罩」——而旧处方恰好把背景糊成一片雾、框架却没有玻璃。
+ *
+ * 正解：把 `#bg-stack` 搬到 `#panel` **外面**（body 下、z-index 更低），
+ *   · 图在面板背后 ⇒ `#panel` 的 `backdrop-filter` 真的糊到它；
+ *   · 图自己不加 filter ⇒ 背景清楚；
+ *   · 两层的圆角/展开动画逐条对齐 ⇒ 透明窗口的圆角不丢。
+ *
+ * 所以这一组现在是**反向断言**：谁再给 `.bg-layer` 加 blur，这里必须红。
  */
 /* ⚠️ 断言前必须先剥掉注释：注释里写着「`filter: blur()`」这类字样时，
  *   正则会跨着注释匹配上，断言就变成了恒真的假绿（这次真踩了）。 */
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[^\n]*\/\/.*$/gm, '')
 const FLOAT_LIVE = stripComments(FLOAT_CSS)
 
-ok('B1 背景层自己被模糊（.bg-layer 有 filter: blur）—— 这才是让正文压得住满图的那一刀',
-  /\.bg-layer\s*\{[^}]*?filter:\s*blur\(/.test(FLOAT_LIVE),
-  '.bg-layer 没有 filter: blur ⇒ 背景图原样透进来，正文直接压在高对比花纹上')
-ok('B2 blur 配了 transform: scale（否则模糊会把容器边角洗白）',
-  /\.bg-layer\s*\{[^}]*?transform:\s*scale\(/.test(FLOAT_LIVE))
-ok('B3 圆角还在（36px + 面板用它）—— 糊化不许以牺牲圆角为代价',
+ok('B1 背景层已在 #panel 外面（否则 backdrop-filter 糊不到它，通透度圆环也就没反应）',
+  /<body>[\s\S]*?<div id="bg-stack"[\s\S]*?<section id="panel"/.test(FLOAT_HTML),
+  'DOM 顺序必须是 #bg-stack 在 #panel 之前')
+ok('B2 背景图自己**不许**糊（.bg-layer 不能有 filter: blur）',
+  !/\.bg-layer\s*\{[^}]*?filter:\s*blur\(/.test(FLOAT_LIVE),
+  '给 .bg-layer 加 blur = 把对话背景糊成雾，用户要的正好相反')
+ok('B3 面板的毛玻璃在（#panel 有 backdrop-filter）',
+  /#panel\s*\{[^}]*?backdrop-filter:\s*blur\(/.test(FLOAT_LIVE),
+  '#panel 丢了 backdrop-filter ⇒ 框架不再是玻璃')
+ok('B4 层级配对（#panel z-index:1 / #bg-stack z-index:0）',
+  /#panel\s*\{[^}]*?z-index:\s*1\b/.test(FLOAT_LIVE) &&
+    /#bg-stack\s*\{[^}]*?z-index:\s*0\b/.test(FLOAT_LIVE))
+ok('B5 圆角还在（36px + 面板用它）—— 搬层不许以牺牲圆角为代价',
   /--panel-radius:\s*36px/.test(FLOAT_CSS) && /border-radius:\s*var\(--panel-radius\)/.test(FLOAT_LIVE))
+ok('B6 两层的展开动画对齐（#bg-stack 有 opacity/transform/transform-origin 三件套）',
+  /#bg-stack\s*\{[^}]*?transform-origin:\s*var\(--origin-x\)/.test(FLOAT_LIVE) &&
+    /body\.expanded\s+#bg-stack\s*\{[^}]*?opacity:\s*1/.test(FLOAT_LIVE))
 
 console.log('')
 console.log('── C. 本地引擎不该说「旧后端」（规矩 ②）──')
@@ -134,13 +151,10 @@ console.log('── D. 反向对照：把两条规矩拆掉，本探针必须红
   ok('D1 去掉 engine 判据后 C2 会红（断言没恒真）',
     broken !== SRC_MAIN && (m === null || !/engine\s*!==\s*'local'/.test(m[1])))
 
-  // D2：把所有 blur 去掉 → B1 必须红（不然这条断言是恒真的）
-  // ⚠️ 必须**全局**替换：CSS 里 `backdrop-filter: blur(...)` 也含 "filter: blur(" 子串，
-  //   只替换第一个的话，去掉的是母本 #panel 的那处，.bg-layer 的还在 ⇒ 对照失效（踩过）。
-  const strippedAll = stripComments(FLOAT_CSS)
-  const css2 = strippedAll.replace(/filter:\s*blur\([^;]*;/g, '')
-  ok('D2 去掉背景层的 blur 后 B1 会红（断言没恒真）',
-    css2 !== strippedAll && !/\.bg-layer\s*\{[^}]*?filter:\s*blur\(/.test(css2))
+  // D2：给 `.bg-layer` 塞回一句 blur → B2 必须红（不然那条反向断言是恒真的）
+  const withBlur = `${FLOAT_LIVE}\n.bg-layer {\n  filter: blur(8px);\n}\n`
+  ok('D2 给 .bg-layer 塞回 blur 后 B2 会红（断言没恒真）',
+    /\.bg-layer\s*\{[^}]*?filter:\s*blur\(/.test(withBlur))
 }
 
 console.log('')

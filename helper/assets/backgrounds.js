@@ -86,11 +86,17 @@ export function createBackgrounds() {
   function setView(next) {
     const resolved = slotForView(next)
     if (resolved !== view) view = resolved
+    // ★ 2026-10-22：背景层已经从 #panel 里搬出去了，CSS 的三条可见性规则
+    //   改认 `body[data-view=…]`。**必须两处都写**：
+    //   只写 panel 的话，那三条 `body[data-view]` 永远匹配不到 ⇒
+    //   三个槽一直 opacity:0（这类「CSS 少一行、功能静默消失」踩过好几次）。
     if (panel && panel.dataset.view !== view) panel.dataset.view = view
+    if (document.body.dataset.view !== view) document.body.dataset.view = view
     paintScrim()
   }
 
   if (panel && panel.dataset.view === undefined) panel.dataset.view = view
+  if (document.body.dataset.view === undefined) document.body.dataset.view = view
 
   return {
     apply,
