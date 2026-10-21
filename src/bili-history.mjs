@@ -209,14 +209,22 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
   /**
    * 标记「我喜欢这条」，并带上她写的两段话。
    * `reason` = 她为什么喜欢；`comment` = 她想对作者说的那句话。
+   *
+   * ★ `by` 是**谁决定的喜欢**（2026-10-22 用户明确口径）：
+   *   · `'orb'`  —— 她自己看完觉得好，主动记下的（**「我喜欢的」只认这一种**）
+   *   · `'user'` —— 用户在抽屉里点了「赞」按钮（那只是替他执行一个动作，
+   *                 不代表她的品味，所以不进「我喜欢的」栏）
+   *   旧数据没有 `by` 字段 —— 一律当 `'user'`：那时候唯一的写入路径就是点赞按钮。
    */
-  function markLiked(bvid, cid, { reason = '', comment = '' } = {}) {
+  function markLiked(bvid, cid, { reason = '', comment = '', by = 'user' } = {}) {
+    const who = by === 'orb' ? 'orb' : 'user'
     return patch(bvid, cid, (it) => {
       it.liked = {
         at: Date.now(),
         reason: String(reason || ''),
         comment: String(comment || ''),
         sentAt: it.liked?.sentAt ?? null,
+        by: who,
       }
       it.actions = { ...(it.actions || {}), like: true }
     })
@@ -252,11 +260,17 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
     })
   }
 
-  /** 「我喜欢的」板块：只回 liked 有值的，最新喜欢的在前。 */
+  /**
+   * 「我喜欢的」板块：只回**她自己决定的**那些（`liked.by === 'orb'`），最新喜欢的在前。
+   *
+   * ★ 2026-10-22 用户口径：「我喜欢的是它自己浏览 b 站看到的视频，而不是我点赞后
+   *   才被加进来的」。所以用户点「赞」产生的那条（by='user' 或旧数据没有 by）
+   *   **不在这里出现** —— 它只是账本里 `actions.like=true`，行内显示「已赞」。
+   */
   function listLiked({ limit = 50 } = {}) {
     const n = Math.max(1, Math.min(Number(limit) || 50, MAX_ITEMS))
     return load()
-      .items.filter((x) => x.liked && x.liked.at)
+      .items.filter((x) => x.liked && x.liked.at && x.liked.by === 'orb')
       .sort((a, b) => Number(b.liked.at) - Number(a.liked.at))
       .slice(0, n)
       .map((x) => ({

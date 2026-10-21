@@ -62,7 +62,7 @@ export function hashPrompt(content, toolSchemas) {
  *   那种「说了不能、其实能」比不会用更难查。所以：**改本文件下面任何一句话，就把这个数 +1**。
  *   `Brain.ensureSnapshot()` 看到会话快照里的版本不一样，会在回合边界重建一次（§11）。
  */
-export const GUIDE_VERSION = 8
+export const GUIDE_VERSION = 9
 
 /** 工具指南：告诉模型这套记忆怎么用。字数尽量省，规则靠工具描述兜。 */
 export function buildToolGuide({ web = true, bili = false, balance = false } = {}) {
@@ -116,6 +116,12 @@ export function buildToolGuide({ web = true, bili = false, balance = false } = {
       '你用的是**他本人登录的 B 站账号**：每次 `bili_watch` 的第一行就写着这次的身份（以及是不是刚向 B 站核实过）与实际给到的画质，照那行说，不要猜「我有没有登录」。',
       '登录态只影响画质上限（匿名 480P / 登录 1080P，大会员更高）；他要更高的画质，让他自己在「设置」里扫一次码。',
       '看过什么会被记进本地账本：想知道「上次那个视频」用 `bili_history` 查，别凭印象编。',
+      '',
+      '### 「我喜欢的」那一栏是你的，不是他的',
+      '看到一条你自己真觉得好的，就在 `bili_watch` 里带上 `liked:true` 和 `reason`（一句为什么），',
+      '它会进**你自己的**「我喜欢的」，以后你还翻得到。',
+      '这不等于替他点赞、也不会发到 B 站——只是你自己的偏好记录。他没感觉的片子别硬写。',
+      '他在抽屉里点「赞」只代表他想赞这条，**不会**进你那个栏；所以别把「他说好」当成「我喜欢」。',
       '',
       '### 认真看还是快速看，你自己定（不要问他选）',
       '`mode:"quick"` = 2 帧、480×270，最省；`mode:"thorough"` = 5 帧、原生上限，看得清小字。',

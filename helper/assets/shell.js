@@ -65,7 +65,7 @@ const zh = {
   // ── 上下两块（2026-10-21 重排）──
   biliLikedTitle: '我喜欢的',
   biliWatchedTitle: '我看过的',
-  biliLikedEmpty: '还没有喜欢的。看见喜欢的就点个赞，它会挪到这儿。',
+  biliLikedEmpty: '还没有她喜欢的。她自己看上哪条，会记在这儿（你点的赞不算）。',
   biliWatchedEmpty: '还没在 B 站看过视频。把链接发给她，她看完就会记在这里。',
   biliMoreOlder: '更早的 {n} 条',
   biliLikedHint: '点开看她为什么喜欢',
@@ -305,7 +305,7 @@ const en = {
   biliSummaryEmpty: '(no summary yet)',
   biliLikedTitle: 'Ones I liked',
   biliWatchedTitle: 'Ones I watched',
-  biliLikedEmpty: 'Nothing liked yet. Hit the like button under a video and it moves up here.',
+  biliLikedEmpty: 'Nothing here yet — this list is hers. She files what she likes herself (your likes do not land here).',
   biliWatchedEmpty: 'She has not watched anything on Bilibili yet. Send her a link and it will show up here.',
   biliMoreOlder: '{n} earlier',
   biliLikedHint: 'tap to see why she liked it',

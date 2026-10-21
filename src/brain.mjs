@@ -370,6 +370,16 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bal
               items: { type: 'number' },
               description: '指定秒数（会吸附到最近的关键帧），例如 [12, 45.5]；给了就忽略 frames 的数量',
             },
+            liked: {
+              type: 'boolean',
+              description:
+                '**你自己**看完觉得这条值得，就设 true —— 它会进你那个「我喜欢的」栏（配 reason 写一句为什么）。' +
+                '这不是替用户点赞、也不会发到 B 站，只是你自己的一笔偏好记录。没感觉就别设。',
+            },
+            reason: {
+              type: 'string',
+              description: '为什么喜欢（一句话，你自己写）。只在 liked:true 时有意义；别编画面里没有的东西。',
+            },
           },
           required: ['url'],
         },
@@ -693,6 +703,9 @@ async function executeTool(
           mode: args?.mode,
           frames: args?.frames,
           times: args?.times,
+          // 她自己判定「这条我喜欢」——宿主侧据此写 liked.by='orb'（不进 B 站、不花钱）
+          liked: args?.liked === true,
+          reason: args?.reason,
         })
         // ★ 图片不走工具结果（工具结果是纯字符串），攒进 collect，由 run() 合成一条带图 user 消息。
         //   不这么做模型只会看到「取了 3 张」这行字，画面根本没进它的眼睛。

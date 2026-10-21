@@ -2891,6 +2891,15 @@ async function ensureRuntime() {
                 account: r.meta.account?.uname ?? '',
                 frameTimes: (r.meta.frames ?? []).map((f) => f.t),
               })
+              // ★ 她自己判定「这条我喜欢」（2026-10-22 用户口径：
+              //   「我喜欢的是它自己浏览 B 站看到的视频，而不是我点赞后才加进来的」）。
+              //   `bili_watch` 带 `liked:true` 才写，理由用她自己的那句话。
+              //   写进去的是 `liked.by='orb'` —— 抽屉的「我喜欢的」只认这一种。
+              if (args?.liked === true) {
+                const why = String(args?.reason ?? '').trim()
+                const w = biliHistory.markLiked(r.meta.bvid, r.meta.cid, { reason: why, by: 'orb' })
+                if (w?.ok) log(`[bili] 她自己喜欢上了：${why.slice(0, 30) || '(没写理由)'}`)
+              }
               // ★ 看完顺手让她写一句「概览」（用户 2026-10-21：界面上要的是
               //   「这个视频大概说了什么」，不是一堆画质/时间点的技术信息）。
               //   **异步跑、不挡工具返回**：模型拿到画面就能回话，概览在后面补上，
@@ -4594,7 +4603,8 @@ async function boot() {
       if (!r.ok) return r
       // 先落「喜欢」这件事本身；理由/想说的话由 `orb:bili-compose` 随后补
       // （写作要一两秒，别让按钮等它）。
-      const m = biliHistoryStore.markLiked(bvid, cid, {})
+      // ★ `by:'user'`：这是**用户**让他点的，不代表她的品味 ⇒ 不进「我喜欢的」栏。
+      const m = biliHistoryStore.markLiked(bvid, cid, { by: 'user' })
       return { ok: true, item: m.item, message: '赞过了' }
     }
     if (action === 'coin') {
