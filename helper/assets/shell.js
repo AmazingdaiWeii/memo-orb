@@ -2515,6 +2515,25 @@ function main() {
     appendImageThumbs(row, list)
   }
 
+  /**
+   * 老数据兜底：把用户消息尾部的「注入块」切掉。
+   *
+   * 2026-10-22 之前的 `messages.jsonl` 里，每条 user 消息都被写成了
+   *   原话 + 「（现在是 …）」+ 「（账户余额 …）」+ `<memory_update …>整篇记忆…</memory_update>`
+   * 于是重开对话时这些提示词会当成正文渲染出来（实时对话时反而是干净的，
+   * 因为广播用的是原文）。落盘侧已在 `src/brain.mjs` 修掉，这里管的是**存量的脏数据**
+   * 与任何将来又被写脏的可能。
+   *
+   * ★ 锚点必须带前置空行：用户真的可能打一句「（现在几点了？）」，不能误伤。
+   * ★ 只在 `kind === 'user'` 且渲染时剥，不改磁盘 —— 磁盘是原始记录，别在 UI 层篡改它。
+   */
+  const INJECT_ANCHOR = /\n{2,}(?=（现在是 |（账户余额 |<memory_update\b)/
+  function stripInjected(text) {
+    const s = String(text ?? '')
+    const i = s.search(INJECT_ANCHOR)
+    return i < 0 ? s : s.slice(0, i)
+  }
+
   function upsertBlock(block) {
     if (typeof block?.key !== 'string' || typeof block.text !== 'string') return
     blockData.set(block.key, block)
@@ -2572,7 +2591,7 @@ function main() {
     if (block.kind === 'user') {
       const bubble = node.querySelector('.user-bubble')
       // ⚠️ 顺序不能反：textContent 会清空子节点，先写文字再贴图行。
-      bubble.textContent = block.text
+      bubble.textContent = stripInjected(block.text)
       renderUserImages(bubble, block)
     } else if (block.kind === 'reasoning') {
       const summary = reasoningSummary(block.text, block.running === true)

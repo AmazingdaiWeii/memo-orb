@@ -15,8 +15,9 @@
  *   · 相对阈值：低于最高分 `relRatio` 倍的丢掉；
  *   · 冷却：同一会话两次注入之间至少隔 `cooldownTurns` 轮，且同一条块不重复注入。
  *
- * ★ 注入块**不能**跟着用户消息落盘（`src/brain.mjs` 的 `appendMessage` 落的是 tailText）。
- *   调用方必须把它从落盘正文里剥掉，否则 messages.jsonl 会被永久污染。
+ * ★ 注入块**不能**跟着用户消息落盘。`src/brain.mjs` 里 `appendMessage` 落的是
+ *   `persistText`（只有用户说过的话，不含召回块 / 时间 / 余额 / memory_update）。
+ *   早先这里的注释写成「落的是 tailText」，与实现不符 —— 已按 2026-10-22 的口径更正。
  */
 
 /** BM25 参数（取值惯例，语料才 10KB，不需要调参） */

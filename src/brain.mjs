@@ -1010,10 +1010,11 @@ class Brain {
         messages.push({ role: m.role, content: m.text })
       }
       // ── 按需召回：把「记忆仓里可能相关的旧记录」拼到本轮 user 消息尾部 ──
-      // ★ 分两份是必须的：`tailText` 发给模型，`persistText` 才落盘。
+      // ★ 分两份是必须的：`tailText` **发给模型**（含本轮全部上下文），
+      //   `persistText` **落盘**（只有他说过的话）。
       //   召回块若跟着落盘，messages.jsonl 里会永久留着一段「自动检索出来的旧记录」，
       //   下一轮再被当成对话历史读回来 —— 这是污染，不是记忆。
-      //   （同一个坑的既有证据：老版本落的是含「（现在是 …）」的 tailText。）
+      //   同理：时间行、余额行、`<memory_update>` 也不落盘（2026-10-22 修）。
       // 余额：每轮告诉她还剩多少钱，好让她自己决定「这条视频认真看还是快速看」。
       // ★ 放尾部（跟时间一样）而不是 system —— system 要字节稳定（I3），余额随时会变。
       //   查不到就返回空串，宁可不提，也不许她凭空估一个数。
@@ -1043,7 +1044,17 @@ class Brain {
       const tailText =
         (recallText === '' ? baseTailParts : [...baseTailParts, recallText]).join('\n\n') ||
         '（他什么也没说）'
-      const persistText = baseTailParts.join('\n\n') || '（他什么也没说）'
+      // ★ 落盘的**只有用户真正说过的话**（2026-10-22 用户报：
+      //   「正在对话时提示词不显示，重新打开对话就出现了」）。
+      //
+      //   根因就是这一行：早先 persistText = baseTailParts.join()，把
+      //   时间行、余额行、`<memory_update>` 全文一起写进了 messages.jsonl。
+      //   而广播给 UI 的是干净的 userText（见下面的 yield）⇒ 实时干净、重开露馅。
+      //   更贵的是：这些块下一轮会被当「历史对话」读回去再喂给模型，上下文白胖一圈。
+      //
+      //   口径：**时间 / 余额 / 记忆更新块 / 召回块 / extraTail 都是「这一轮看到的」，
+      //   不是「他说过的话」** —— 一个字都不该进账。
+      const persistText = String(userText ?? '').trim() || '（他什么也没说）'
 
       // ── 图片：有图就把 user content 换成 OpenAI 多模态数组 ──
       // 形状必须是 `{type:'image_url', image_url:{url:'data:<mime>;base64,<b64>'}}`：
@@ -1066,9 +1077,10 @@ class Brain {
           ]
       messages.push({ role: 'user', content: userContent })
 
-      // 落盘的是**实际发给模型的那份正文**，否则重放时上下文对不上；
-      // ★ 但召回块除外 —— 它只属于「这一轮看到的东西」，不属于「他说过的话」。
-      //   所以这里写的是 `persistText`（= tailText 去掉召回块），不是 tailText。
+      // 落盘的只有 `persistText`（= 他真正说过的话）。
+      // ★ 2026-10-22 之前这里落的是 `tailText` 去掉召回块的版本，仍带着
+      //   时间 / 余额 / `<memory_update>` —— 那些块重开对话就会被当成对话正文渲染出来。
+      //   口径改成「只有他说的话才进账」，与 UI 气泡用的是同一份文本。
       // 图同时写成 content 的 image 片段，这样切走再切回时气泡里的「图片 ×N」
       // 占位与点开取图（image-request → readMessageImages）都还在。
       this.sessionStore.appendMessage(sessionId, { role: 'user', text: persistText, images: imageList })
