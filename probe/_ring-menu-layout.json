@@ -1,0 +1,468 @@
+{
+  "scale": "1",
+  "ring": {
+    "outer": 248,
+    "band": 40,
+    "pad": 16,
+    "window": 280
+  },
+  "hover": 1.18,
+  "p1": {
+    "innerWidth": 280,
+    "innerHeight": 280,
+    "cssWindow": 392,
+    "cssOuter": 248,
+    "cssInner": 168,
+    "ringOpen": true,
+    "itemCount": 5,
+    "items": [
+      {
+        "id": "avatar",
+        "label": "更换显示样式（头像）",
+        "rect": {
+          "left": 127.5,
+          "top": 23.5,
+          "right": 152.5,
+          "bottom": 48.5,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 0, -104)"
+      },
+      {
+        "id": "impression",
+        "label": "我们的回忆",
+        "rect": {
+          "left": 226.41,
+          "top": 95.36,
+          "right": 251.41,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 98.91, -32.14)"
+      },
+      {
+        "id": "history",
+        "label": "历史对话",
+        "rect": {
+          "left": 188.63,
+          "top": 211.64,
+          "right": 213.63,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 61.13, 84.14)"
+      },
+      {
+        "id": "new-chat",
+        "label": "新建",
+        "rect": {
+          "left": 66.37,
+          "top": 211.64,
+          "right": 91.37,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -61.13, 84.14)"
+      },
+      {
+        "id": "letta-web",
+        "label": "打开 Letta 界面",
+        "rect": {
+          "left": 28.59,
+          "top": 95.36,
+          "right": 53.59,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -98.91, -32.14)"
+      }
+    ],
+    "bandRadiusOuter": 124,
+    "bandMask": "radial-gradient(circle, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0) 83.5px, rgb(0, 0, 0) 84.5px)",
+    "orbitDash": "467.31190722148165 280.3871443328891",
+    "previewOpacity": "rgba(21, 21, 23, 0.700)",
+    "hud": "70%",
+    "hudDisplay": "none",
+    "hudHidden": true,
+    "animations": [
+      {
+        "name": "ring-in",
+        "state": "finished"
+      },
+      {
+        "name": "item-in",
+        "state": "finished"
+      },
+      {
+        "name": "item-in",
+        "state": "finished"
+      },
+      {
+        "name": "item-in",
+        "state": "finished"
+      },
+      {
+        "name": "item-in",
+        "state": "finished"
+      },
+      {
+        "name": "item-in",
+        "state": "finished"
+      }
+    ],
+    "visibility": "visible"
+  },
+  "p2": {
+    "innerWidth": 280,
+    "innerHeight": 280,
+    "cssWindow": 392,
+    "cssOuter": 248,
+    "cssInner": 168,
+    "ringOpen": true,
+    "itemCount": 5,
+    "items": [
+      {
+        "id": "avatar",
+        "label": "更换显示样式（头像）",
+        "rect": {
+          "left": 127.5,
+          "top": 23.5,
+          "right": 152.5,
+          "bottom": 48.5,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 0, -104)"
+      },
+      {
+        "id": "impression",
+        "label": "我们的回忆",
+        "rect": {
+          "left": 226.41,
+          "top": 95.36,
+          "right": 251.41,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 98.91, -32.14)"
+      },
+      {
+        "id": "history",
+        "label": "历史对话",
+        "rect": {
+          "left": 188.63,
+          "top": 211.64,
+          "right": 213.63,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 61.13, 84.14)"
+      },
+      {
+        "id": "new-chat",
+        "label": "新建",
+        "rect": {
+          "left": 66.37,
+          "top": 211.64,
+          "right": 91.37,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -61.13, 84.14)"
+      },
+      {
+        "id": "letta-web",
+        "label": "打开 Letta 界面",
+        "rect": {
+          "left": 28.59,
+          "top": 95.36,
+          "right": 53.59,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -98.91, -32.14)"
+      }
+    ],
+    "bandRadiusOuter": 124,
+    "bandMask": "radial-gradient(circle, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0) 83.5px, rgb(0, 0, 0) 84.5px)",
+    "orbitDash": "467.31190722148165 280.3871443328891",
+    "previewOpacity": "rgba(21, 21, 23, 0.700)",
+    "hud": "70%",
+    "hudDisplay": "none",
+    "hudHidden": true,
+    "animations": [],
+    "visibility": "visible"
+  },
+  "p3": {
+    "innerWidth": 280,
+    "innerHeight": 280,
+    "cssWindow": 392,
+    "cssOuter": 248,
+    "cssInner": 168,
+    "ringOpen": true,
+    "itemCount": 5,
+    "items": [
+      {
+        "id": "avatar",
+        "label": "更换显示样式（头像）",
+        "rect": {
+          "left": 127.5,
+          "top": 23.5,
+          "right": 152.5,
+          "bottom": 48.5,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 0, -104)"
+      },
+      {
+        "id": "impression",
+        "label": "我们的回忆",
+        "rect": {
+          "left": 226.41,
+          "top": 95.36,
+          "right": 251.41,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 98.91, -32.14)"
+      },
+      {
+        "id": "history",
+        "label": "历史对话",
+        "rect": {
+          "left": 188.63,
+          "top": 211.64,
+          "right": 213.63,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 61.13, 84.14)"
+      },
+      {
+        "id": "new-chat",
+        "label": "新建",
+        "rect": {
+          "left": 66.37,
+          "top": 211.64,
+          "right": 91.37,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -61.13, 84.14)"
+      },
+      {
+        "id": "letta-web",
+        "label": "打开 Letta 界面",
+        "rect": {
+          "left": 28.59,
+          "top": 95.36,
+          "right": 53.59,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -98.91, -32.14)"
+      }
+    ],
+    "bandRadiusOuter": 124,
+    "bandMask": "radial-gradient(circle, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0) 83.5px, rgb(0, 0, 0) 84.5px)",
+    "orbitDash": "467.31190722148165 280.3871443328891",
+    "previewOpacity": "rgba(21, 21, 23, 0.700)",
+    "hud": "70%",
+    "hudDisplay": "none",
+    "hudHidden": true,
+    "animations": [],
+    "visibility": "visible"
+  },
+  "p4": {
+    "innerWidth": 280,
+    "innerHeight": 280,
+    "cssWindow": 392,
+    "cssOuter": 248,
+    "cssInner": 168,
+    "ringOpen": true,
+    "itemCount": 5,
+    "items": [
+      {
+        "id": "avatar",
+        "label": "更换显示样式（头像）",
+        "rect": {
+          "left": 127.5,
+          "top": 23.5,
+          "right": 152.5,
+          "bottom": 48.5,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 0, -104)"
+      },
+      {
+        "id": "impression",
+        "label": "我们的回忆",
+        "rect": {
+          "left": 226.41,
+          "top": 95.36,
+          "right": 251.41,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 98.91, -32.14)"
+      },
+      {
+        "id": "history",
+        "label": "历史对话",
+        "rect": {
+          "left": 188.63,
+          "top": 211.64,
+          "right": 213.63,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 61.13, 84.14)"
+      },
+      {
+        "id": "new-chat",
+        "label": "新建",
+        "rect": {
+          "left": 66.37,
+          "top": 211.64,
+          "right": 91.37,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -61.13, 84.14)"
+      },
+      {
+        "id": "letta-web",
+        "label": "打开 Letta 界面",
+        "rect": {
+          "left": 28.59,
+          "top": 95.36,
+          "right": 53.59,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -98.91, -32.14)"
+      }
+    ],
+    "bandRadiusOuter": 124,
+    "bandMask": "radial-gradient(circle, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0) 83.5px, rgb(0, 0, 0) 84.5px)",
+    "orbitDash": "140.19357216644448 607.5054793879262",
+    "previewOpacity": "rgba(21, 21, 23, 0.350)",
+    "hud": "35%",
+    "hudDisplay": "none",
+    "hudHidden": true,
+    "animations": [],
+    "visibility": "visible"
+  },
+  "p5": {
+    "innerWidth": 280,
+    "innerHeight": 280,
+    "cssWindow": 392,
+    "cssOuter": 248,
+    "cssInner": 168,
+    "ringOpen": true,
+    "itemCount": 5,
+    "items": [
+      {
+        "id": "avatar",
+        "label": "更换显示样式（头像）",
+        "rect": {
+          "left": 127.5,
+          "top": 23.5,
+          "right": 152.5,
+          "bottom": 48.5,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 0, -104)"
+      },
+      {
+        "id": "impression",
+        "label": "我们的回忆",
+        "rect": {
+          "left": 226.41,
+          "top": 95.36,
+          "right": 251.41,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 98.91, -32.14)"
+      },
+      {
+        "id": "history",
+        "label": "历史对话",
+        "rect": {
+          "left": 188.63,
+          "top": 211.64,
+          "right": 213.63,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, 61.13, 84.14)"
+      },
+      {
+        "id": "new-chat",
+        "label": "新建",
+        "rect": {
+          "left": 66.37,
+          "top": 211.64,
+          "right": 91.37,
+          "bottom": 236.64,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -61.13, 84.14)"
+      },
+      {
+        "id": "letta-web",
+        "label": "打开 Letta 界面",
+        "rect": {
+          "left": 28.59,
+          "top": 95.36,
+          "right": 53.59,
+          "bottom": 120.36,
+          "width": 25,
+          "height": 25
+        },
+        "transform": "matrix(1, 0, 0, 1, -98.91, -32.14)"
+      }
+    ],
+    "bandRadiusOuter": 124,
+    "bandMask": "radial-gradient(circle, rgba(0, 0, 0, 0) 0px, rgba(0, 0, 0, 0) 83.5px, rgb(0, 0, 0) 84.5px)",
+    "orbitDash": "467.31190722148165 280.3871443328891",
+    "previewOpacity": "rgba(21, 21, 23, 0.700)",
+    "hud": "70%",
+    "hudDisplay": "none",
+    "hudHidden": true,
+    "animations": [],
+    "visibility": "visible"
+  },
+  "received": {
+    "action": [],
+    "close": 1,
+    "hit": [],
+    "opacity": []
+  },
+  "passed": 32,
+  "failed": 4
+}

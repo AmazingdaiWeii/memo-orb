@@ -1,0 +1,183 @@
+=== dc-05 · memstore 可靠性探针 · R8 可复核证据 ===
+生成时间：2026-10-21T14:40:23.742Z
+node：v22.22.2
+仓库：E:\Memo orb\_sandbox-data\memfs\test-agent-reliability-001\memory
+测试 agent：test-agent-reliability-001
+
+★ 怎么读这份文件（不需要能起 git 子进程）：
+1) 每段「### …」是一个时刻的完整仓库快照：文件列表 + 每个文件的 sha256 + git log + git status。
+2) V1 → 看「V1 · 写入后」：v1/test.md 在、sha 稳定、git log 多一条 commit。
+3) V2 → 看「V2 · 子进程被 SIGKILL 后」：v2/data.md 仍是初始版本（sha 与「V2 · 初始写入后」一致）；
+   v2/big.md 要么不存在、要么完整（>1000B 且不以 .tmp 结尾）；残留的 *.tmp-* 是原子写的中转文件，不会被 read() 当成正式文件。
+4) V3 → 看「V3 · 10 个文件并发写入后」：v3/file-0..9.md 十个都在，v3/same-file.md 只有一份且是某一次完整写入的最终态。
+5) V6 → 看「V6 · 误删后」与「V6 · git 恢复后」两段：前者 v6/important.md 消失，后者 sha 与「V6 · 写入后」完全一致。
+6) sha256 可独立复核：`Get-FileHash -Algorithm SHA256 <文件>` 或 `certutil -hashfile <文件> SHA256`。
+
+──────── 运行输出 ────────
+=== dc-05 · memstore 可靠性探针（G2 闸门）===
+
+沙箱目录：E:\Memo orb\_sandbox-data
+测试 agent：test-agent-reliability-001
+
+── V1：写了立刻可见 ──
+  写入 50 字符
+  立刻读回 50 字符
+  内容一致：✅
+  📸 快照「V1 · 写入后」：1 个文件，0 个 tmp 残留
+
+── V2：崩溃不丢 ──
+  初始文件已写入并提交
+  📸 快照「V2 · 初始写入后」：1 个文件，0 个 tmp 残留
+  杀掉子进程...（写入已开始 15ms，正处于 commit 中途）
+  子进程退出：code=null, signal=SIGKILL
+  子进程输出：CHILD: starting write...
+  ✅ 初始文件完整保留
+  ✅ big.md 完整存在（50014 字节）
+  git status：?? v2/big.md
+  📸 快照「V2 · 子进程被 SIGKILL 后」：2 个文件，0 个 tmp 残留
+  ✅ V2 通过：无半截文件，初始数据完整
+
+── V3：并发不覆盖 ──
+  测试 A：10 个不同文件并发写
+  10 个文件全部存在且内容正确：✅
+  测试 B：同一文件并发写 10 次
+  最终文件完整（212 字符，以换行结尾）：✅
+  最终内容是完整的一次写入（非混合）：✅
+  ✅ V3 通过
+  📸 快照「V3 · 10 个文件并发写入后」：11 个文件，0 个 tmp 残留
+
+── V6：误删可恢复 ──
+  文件已写入并提交
+  📸 快照「V6 · 写入后」：1 个文件，0 个 tmp 残留
+  文件已删除
+  📸 快照「V6 · 误删后」：0 个文件，0 个 tmp 残留
+  确认文件已不存在
+  git checkout 恢复成功
+  📸 快照「V6 · git 恢复后」：1 个文件，0 个 tmp 残留
+  删除前：48 字符
+  恢复后：48 字符
+  逐字节相同：✅
+  ✅ V6 通过
+
+=== G2 闸门总结 ===
+V1 写了立刻可见：✅ PASS
+V2 崩溃不丢：    ✅ PASS
+V3 并发不覆盖：  ✅ PASS
+V6 误删可恢复：  ✅ PASS
+
+✅ G2 通过：V1 / V3 / V6 全绿
+
+──────── 仓库快照（关键中间态）────────
+### V1 · 写入后
+时刻：2026-10-21T14:39:47.178Z
+说明：立刻 read() 与写入内容逐字节相同 ⇒ 写了立刻可见
+记忆文件数：1（其中 *.tmp-* 原子写中转残留：0）
+- `v1/test.md`  84B  sha256=61ba60d296a4b5089f00a37512a52029cc6202c52474af2501e3ba921412473e
+
+git log --oneline：
+```
+c895e13 mem: v1/test.md @ 2026-10-21T14:39:45.925Z (tool)
+```
+git status --porcelain：clean（工作树干净）
+
+### V2 · 初始写入后
+时刻：2026-10-21T14:39:50.070Z
+说明：崩溃点之前的基线：v2/data.md 已 commit
+记忆文件数：1（其中 *.tmp-* 原子写中转残留：0）
+- `v2/data.md`  44B  sha256=45582fd5e39e40a413889113ed5b6438fdc8ac9aa12535672b85a099433cefdf
+
+git log --oneline：
+```
+3e18205 mem: v2/data.md @ 2026-10-21T14:39:48.983Z (tool)
+```
+git status --porcelain：clean（工作树干净）
+
+### V2 · 子进程被 SIGKILL 后
+时刻：2026-10-21T14:39:51.078Z
+说明：对照「V2 · 初始写入后」：v2/data.md 的 sha 必须不变；v2/big.md 要么不存在，要么完整的一整块（非半截）
+记忆文件数：2（其中 *.tmp-* 原子写中转残留：0）
+- `v2/big.md`  50014B  sha256=46a2e1769340da4c9b581f7642d3ad925c07d4df7c79f039bf52f850bb5194aa
+- `v2/data.md`  44B  sha256=45582fd5e39e40a413889113ed5b6438fdc8ac9aa12535672b85a099433cefdf
+
+git log --oneline：
+```
+3e18205 mem: v2/data.md @ 2026-10-21T14:39:48.983Z (tool)
+```
+git status --porcelain：?? v2/big.md
+
+### V3 · 10 个文件并发写入后
+时刻：2026-10-21T14:40:16.155Z
+说明：v3/file-0..9.md 十个都要在（无互相覆盖）；v3/same-file.md 只有一份，且是某一次完整写入的最终态
+记忆文件数：11（其中 *.tmp-* 原子写中转残留：0）
+- `v3/file-0.md`  122B  sha256=7148488775cea37d5e0d13c9702a7cdb2b35c0d248545652e336586ef173b651
+- `v3/file-1.md`  123B  sha256=7ad5238489dc9b5e5a900a732e0a604fe7726cd4b27d2dc05e153423d3a81844
+- `v3/file-2.md`  124B  sha256=f3e62e8c00c3aa96d210d81f15d0b466d1f33569c35ba2b0db79d19900914e10
+- `v3/file-3.md`  125B  sha256=b93469a6c71f8a43ca7e450ccc9bcaccc1658a5b2f5a46c66592e25efe6cdbfb
+- `v3/file-4.md`  126B  sha256=baa0f1f62f441af1302cfe69a40cc25719908d018748946904454a62fc8e31ea
+- `v3/file-5.md`  127B  sha256=7537651b622e189fac91927686fc5336a644c74cb0219aa89f4f84721bf6de8b
+- `v3/file-6.md`  128B  sha256=11b6f964e0f0a7f5dfb0b3fe9b43f2e35f84879cd9fd629a4fdac7fbca6c2aeb
+- `v3/file-7.md`  129B  sha256=034f0ce1f53d2efd34e5cd9b4ed248e47dd2d20c624fd4244de5a3a315f619ff
+- `v3/file-8.md`  130B  sha256=4126ff2378eb1b631a473328a00938b23836e2076da9fb44474336d2a615784c
+- `v3/file-9.md`  131B  sha256=55b135e0191691105dcbc8eb1d1a7eb0486e69f90279eb5dbe49672a74b94437
+- `v3/same-file.md`  220B  sha256=eefdb74c93b13c4ccbef3a40ee75bddcd0e57d5b3c7be00fc05db6c5919ec882
+
+git log --oneline：
+```
+1d2f613 mem: v3/same-file.md @ 2026-10-21T14:40:14.972Z (tool)
+6bdec3a mem: v3/same-file.md @ 2026-10-21T14:40:13.809Z (tool)
+96612c1 mem: v3/same-file.md @ 2026-10-21T14:40:12.754Z (tool)
+a164608 mem: v3/same-file.md @ 2026-10-21T14:40:11.647Z (tool)
+4737761 mem: v3/same-file.md @ 2026-10-21T14:40:10.504Z (tool)
+960aea5 mem: v3/same-file.md @ 2026-10-21T14:40:09.452Z (tool)
+5cd670b mem: v3/same-file.md @ 2026-10-21T14:40:08.223Z (tool)
+870653a mem: v3/same-file.md @ 2026-10-21T14:40:07.141Z (tool)
+65727d1 mem: v3/same-file.md @ 2026-10-21T14:40:05.998Z (tool)
+8a53fd6 mem: v3/same-file.md @ 2026-10-21T14:40:04.811Z (tool)
+8fd5061 mem: v3/file-9.md @ 2026-10-21T14:40:03.703Z (tool)
+fe0bc70 mem: v3/file-8.md @ 2026-10-21T14:40:02.585Z (tool)
+236d2c4 mem: v3/file-7.md @ 2026-10-21T14:40:01.474Z (tool)
+e6ee6d4 mem: v3/file-6.md @ 2026-10-21T14:40:00.221Z (tool)
+c4d90d7 mem: v3/file-5.md @ 2026-10-21T14:39:58.953Z (tool)
+adfb3b2 mem: v3/file-4.md @ 2026-10-21T14:39:57.908Z (tool)
+3010304 mem: v3/file-3.md @ 2026-10-21T14:39:56.837Z (tool)
+cb6a1ae mem: v3/file-2.md @ 2026-10-21T14:39:55.782Z (tool)
+c3a126b mem: v3/file-1.md @ 2026-10-21T14:39:54.644Z (tool)
+341d01b mem: v3/file-0.md @ 2026-10-21T14:39:53.489Z (tool)
+```
+git status --porcelain：clean（工作树干净）
+
+### V6 · 写入后
+时刻：2026-10-21T14:40:22.347Z
+说明：删除前的基线：v6/important.md 的 sha 是恢复后必须对上的值
+记忆文件数：1（其中 *.tmp-* 原子写中转残留：0）
+- `v6/important.md`  84B  sha256=c883c6367b57d3a95f5895fd0aaeb01920e8c9d3b0eb392b0b11428193f1368f
+
+git log --oneline：
+```
+02eac97 mem: v6/important.md @ 2026-10-21T14:40:21.190Z (tool)
+```
+git status --porcelain：clean（工作树干净）
+
+### V6 · 误删后
+时刻：2026-10-21T14:40:22.965Z
+说明：v6/important.md 应该从文件列表里消失（工作树删除，未提交）
+记忆文件数：0（其中 *.tmp-* 原子写中转残留：0）
+- （仓库里没有文件）
+
+git log --oneline：
+```
+02eac97 mem: v6/important.md @ 2026-10-21T14:40:21.190Z (tool)
+```
+git status --porcelain：D v6/important.md
+
+### V6 · git 恢复后
+时刻：2026-10-21T14:40:23.741Z
+说明：对照「V6 · 写入后」：v6/important.md 的 sha 必须完全一致（逐字节恢复）
+记忆文件数：1（其中 *.tmp-* 原子写中转残留：0）
+- `v6/important.md`  84B  sha256=c883c6367b57d3a95f5895fd0aaeb01920e8c9d3b0eb392b0b11428193f1368f
+
+git log --oneline：
+```
+02eac97 mem: v6/important.md @ 2026-10-21T14:40:21.190Z (tool)
+```
+git status --porcelain：clean（工作树干净）

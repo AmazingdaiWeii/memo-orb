@@ -1,0 +1,6 @@
+{
+  "name": "orb-helper",
+  "private": true,
+  "type": "module",
+  "description": "dsh-orb 的球窗口宿主（复用上游构建产物，此处只声明模块类型）"
+}

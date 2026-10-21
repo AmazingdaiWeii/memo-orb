@@ -1,0 +1,15 @@
+{
+  "name": "orb",
+  "version": "0.2.0",
+  "private": true,
+  "description": "桌面悬浮球助手：一只住在屏幕上的小球，自建对话引擎与长记忆，零 npm 依赖，数据全在本地 data/",
+  "type": "commonjs",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "node src/launch.mjs"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {}
+}

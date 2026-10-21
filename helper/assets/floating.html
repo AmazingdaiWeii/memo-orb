@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- ★ img-src 必须带 `blob:`：附件缩略图与消息气泡里的图都是
+         `URL.createObjectURL(blob)` 出来的 blob: URL（helper/assets/image-attach.js:194）。
+         少了它，Chromium 会拒绝加载 → <img> 回落显示 alt 文字（截图里那个「image」字样）。
+         实测证据：probe/csp-blob-check.cjs 输出
+         "Loading the image 'blob:file:///...' violates the following Content Security Policy
+          directive: \"img-src 'self' data:\". The action has been blocked." -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' dsh-app://app; img-src 'self' data: blob:; frame-src dsh-app://app">
+    <title id="page-title"></title>
+    <link rel="stylesheet" href="theme.css">
+    <link rel="stylesheet" href="floating.css">
+    <link rel="stylesheet" href="chat.css">
+    <link rel="stylesheet" href="context-menu.css">
+  </head>
+  <body>
+    <section id="panel" hidden>
+      <!-- 背景层（用户 m02033）：三个页面各自一张图，随视图切换交叉淡入。
+           ★ 它是**面板内的一层 DOM**，不是第二个窗口：窗口拉伸时这层跟着
+             重排，而图片用 cover/contain/auto 适配 —— 图元一个像素都不拉伸，
+             窗口变大只是「同一张图露出更多」。
+           ★ z-index:-1 是刻意的：负层级子元素画在 #panel 自己的背景/毛玻璃
+             **之上**、所有常规流内容（对话、输入框、抽屉）**之下**，
+             不必给每个内容块补 position/z-index。
+           图片文件由主进程复制进 helper/assets/backgrounds/ 后按相对路径引用
+           （与球体 GIF 同一套机制，CSP 的 img-src 'self' 直接放行）。 -->
+      <div id="bg-stack" aria-hidden="true">
+        <div class="bg-layer" data-slot="chat"></div>
+        <div class="bg-layer" data-slot="history"></div>
+        <div class="bg-layer" data-slot="recall"></div>
+        <div id="bg-scrim"></div>
+      </div>
+      <button id="history" type="button" aria-pressed="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+          <path d="M8 4.5v4l2.5 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+      </button>
+      <div id="permission">
+        <button id="permission-button" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span id="permission-label"></span>
+          <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+            <path d="M3 4.5 6 8l3-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
+        <ul id="permission-menu" role="listbox" hidden></ul>
+      </div>
+      <button id="new-conversation" type="button">+</button>
+      <div id="transcript" role="log" aria-live="polite"></div>
+      <div id="question" hidden>
+        <div class="question-card">
+          <header class="question-heading">
+            <div class="question-heading-text">
+              <p id="question-eyebrow" hidden></p>
+              <h2 id="question-title"></h2>
+            </div>
+            <button id="question-cancel" type="button"></button>
+          </header>
+          <p id="question-detail" hidden></p>
+          <div id="question-options"></div>
+          <textarea id="question-custom" rows="1" hidden></textarea>
+          <p id="question-error" role="status" hidden></p>
+          <footer class="question-footer">
+            <div id="question-pager" class="question-pager" hidden>
+              <button id="question-prev" type="button"></button>
+              <span id="question-progress"></span>
+              <button id="question-next-nav" type="button"></button>
+            </div>
+            <div class="question-actions">
+              <button id="question-skip" type="button"></button>
+              <button id="question-continue" type="button"></button>
+            </div>
+          </footer>
+        </div>
+      </div>
+      <div id="history-list" role="listbox" hidden></div>
+      <!-- 对话隐私锁 · 解锁卡（对话加密_落地方案.md §4.3 / §5）。
+           在「软锁生效」或「打开挂了强锁的对话」时出现，盖在历史列表之上。
+           与 #history-list 平级，走同一套抽屉互斥。
+           文本标一律由 shell.js 按语种写入，这里不放中文字面量。 -->
+      <div id="lock-gate" role="dialog" aria-modal="true" aria-labelledby="lock-title" hidden>
+        <div class="lock-card">
+          <header class="lock-head">
+            <div class="lock-heading">
+              <p id="lock-eyebrow"></p>
+              <h2 id="lock-title"></h2>
+            </div>
+            <button id="lock-close" type="button"></button>
+          </header>
+          <p id="lock-detail"></p>
+          <div class="lock-field">
+            <input
+              id="lock-input"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              aria-labelledby="lock-title"
+            >
+            <button id="lock-submit" type="button"></button>
+          </div>
+          <p id="lock-feedback" role="status" hidden></p>
+          <p id="lock-hint" class="lock-hint"></p>
+          <!-- 强锁逃生通道（方案 §7）：忘记密码时直读磁盘导出明文。 -->
+          <button id="lock-export" type="button" hidden></button>
+        </div>
+      </div>
+      <!-- 记忆中心（P0-7「我们的回忆」）。
+           设计依据 `记忆中心_落地方案.md` §〇：只展示一份**自然语言写的**印象，
+           不是文件列表、不是结构化卡片。host 侧六条协议已就绪，这里只负责呈现。
+           与 #history-list 平级、互斥显示（同一时刻只开一个抽屉）。 -->
+      <section id="impression" aria-labelledby="impression-title" hidden>
+        <header class="impression-head">
+          <h2 id="impression-title"></h2>
+          <button id="impression-close" type="button" aria-label="关闭"></button>
+        </header>
+        <p id="impression-meta" class="impression-meta"></p>
+        <p id="impression-warn" class="impression-warn" role="status" hidden></p>
+        <!-- 正文：host 给的是 Markdown 原文，这里按纯文本安全渲染（textContent），
+             绝不用 innerHTML —— 内容出自模型，插标签就是注入漏洞。 -->
+        <div id="impression-body" class="impression-body" tabindex="0"></div>
+        <div id="impression-empty" class="impression-empty" hidden></div>
+        <footer class="impression-foot">
+          <button id="impression-refresh" type="button"></button>
+          <!-- ★ 自绘按钮，不用原生 <select>。
+               原生下拉的弹出列表是 OS 绘制的非客户区，在暗色主题下
+               会出现「选项文字继承浅色、落在白色弹出底上 = 一片空白」
+               （2026-10-07 用户截图）。给 option 写死配色能缓解，
+               但在 frame:false + transparent:true 的窗口里仍不可靠 ——
+               与项目里右键菜单、头像选择器统一走 contextMenu 更稳。 -->
+          <button
+            id="impression-schedule"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded="false"
+          ></button>
+        </footer>
+        <details id="impression-history">
+          <summary id="impression-history-summary"></summary>
+          <div id="impression-history-list"></div>
+          <div id="impression-at" class="impression-at" hidden>
+            <p id="impression-at-meta"></p>
+            <div id="impression-at-body" class="impression-body" tabindex="0"></div>
+            <button id="impression-at-back" type="button"></button>
+          </div>
+        </details>
+      </section>
+      <!-- 「看过的视频」= 她在 B 站看过什么的账本（2026-10-21 用户拍板：
+           把环菜单里那个早已跑不通的「打开旧后端界面」改造成这个页面；
+           2026-10-21 夜按用户要求重排：上半「我喜欢的」/ 下半「我看过的」，
+           每块只露最近两条，更早的收进 <details>；每条下面一行 赞/币/藏。
+           2026-10-21 深夜再按用户意见改：
+             · 顶部大标题「看过的视频」与下面那行「共 N 条…」**删掉**（多余，腾地方）；
+             · 两个板块的标题改用原来那个大标题的**格式**；
+             · 每条只留「标题 + 概览」；时间/画质/次数/帧时间点这些技术信息全删；
+             · 观看时间与视频时长挪到原来「B 站」按钮那一格。
+           数据源与 `bili_watch` / `bili_history` 工具同一份：`<ORB_DATA>/bili-history.json`。
+           ★ 这里不放中文字面量：标题/按钮/空态全由 bili-history-panel.js 按语种写入。 -->
+      <section id="bili-history" aria-labelledby="bili-liked-title" hidden>
+        <!-- 顶部只剩一颗 ×（绝对定位到右上角，不占一整行） -->
+        <header class="bili-history-head">
+          <button id="bili-history-close" type="button"></button>
+        </header>
+
+        <!-- 上半：我喜欢的（liked 有值的那些）。行可点 → 打开二级面板看理由。 -->
+        <div class="bili-block" data-block="liked">
+          <h3 class="bili-block-title" id="bili-liked-title"></h3>
+          <p class="bili-block-empty" id="bili-liked-empty" hidden></p>
+          <div class="bili-list" id="bili-liked-list"></div>
+          <details class="bili-more" id="bili-liked-more" hidden>
+            <summary id="bili-liked-more-summary"></summary>
+            <div class="bili-list" id="bili-liked-older"></div>
+          </details>
+        </div>
+
+        <!-- 下半：我看过的（全部条目，按最近看的排）。 -->
+        <div class="bili-block" data-block="watched">
+          <h3 class="bili-block-title" id="bili-watched-title"></h3>
+          <p class="bili-block-empty" id="bili-watched-empty" hidden></p>
+          <div class="bili-list" id="bili-watched-list"></div>
+          <details class="bili-more" id="bili-watched-more" hidden>
+            <summary id="bili-watched-more-summary"></summary>
+            <div class="bili-list" id="bili-watched-older"></div>
+          </details>
+        </div>
+
+        <!-- 二级面板：我喜欢的理由 + 我想对视频作者说的话（她拟，用户决定发不发）。 -->
+        <div class="bili-note" id="bili-note" hidden>
+          <div class="bili-note-head">
+            <h3 id="bili-note-title"></h3>
+          </div>
+          <p class="bili-note-label" id="bili-note-summary-label"></p>
+          <p class="bili-note-reason" id="bili-note-summary"></p>
+          <p class="bili-note-label" id="bili-note-reason-label"></p>
+          <p class="bili-note-reason" id="bili-note-reason"></p>
+          <p class="bili-note-label" id="bili-note-comment-label"></p>
+          <textarea id="bili-note-comment" rows="3" spellcheck="false"></textarea>
+          <p class="bili-note-status" id="bili-note-status" role="status"></p>
+          <div class="bili-note-actions">
+            <button id="bili-note-send" type="button"></button>
+            <button id="bili-note-regen" type="button"></button>
+            <button id="bili-note-cancel" type="button"></button>
+          </div>
+          <div class="bili-note-foot">
+            <button id="bili-note-summary-write" type="button"></button>
+            <button id="bili-note-open-bili" type="button"></button>
+          </div>
+        </div>
+
+        <footer class="bili-history-foot">
+          <button id="bili-history-refresh" type="button"></button>
+          <button id="bili-history-clear" type="button"></button>
+        </footer>
+      </section>
+      <!-- 「设置」（用户 m03985-C：原「API 配置」抽屉重组）。
+           与 #impression 平级、互斥显示（同一时刻只开一个抽屉）。
+           2026-10-19 之后真源只有本机：
+             · 项目根 `config.json` —— model / contextBudgetTokens（压缩阈值旋钮）
+             · `<ORB_DATA>/providers/auth.json` —— base_url / api_key
+             · `<ORB_DATA>/wechat.json` —— 微信桥开关 / bot token / 接口地址
+          旧后端相关（legacy 地址行、legacy 按钮、思考开关、agent 的 context_window_limit）
+           连同后端一起删掉 —— 那些控件在这个引擎下写进去也没有任何效果。
+           ★ 文案一律由 shell.js 按语种写入（见 api-config.js 的 LABELS 表），
+             这里不放中文字面量；API key 默认 type=password。 -->
+      <section id="api-config" aria-labelledby="api-config-title" hidden>
+        <header class="api-config-head">
+          <h2 id="api-config-title"></h2>
+          <button id="api-config-close" type="button" aria-label="关闭"></button>
+        </header>
+        <p id="api-config-note" class="api-config-note" role="status" hidden></p>
+        <p id="api-group-model" class="api-group-title"></p>
+        <label class="api-field">
+          <span id="api-provider-label"></span>
+          <input id="api-provider" type="text" readonly tabindex="-1">
+        </label>
+        <label class="api-field">
+          <span id="api-model-label"></span>
+          <input id="api-model" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="api-field">
+          <span id="api-base-url-label"></span>
+          <input id="api-base-url" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="api-field">
+          <span id="api-key-label"></span>
+          <span class="api-key-row">
+            <input id="api-key" type="password" autocomplete="off" spellcheck="false">
+            <button id="api-key-reveal" type="button" aria-pressed="false"></button>
+          </span>
+        </label>
+        <!-- 压缩阈值（原「上下文窗口上限」）。在 local 引擎下这条是**真旋钮**：
+             写 config.json 的 contextBudgetTokens，settings.mjs 每轮带 mtime 缓存重读，
+             存完下一轮就生效，不重启。 -->
+        <label class="api-field">
+          <span id="api-context-limit-label"></span>
+          <input id="api-context-limit" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+        </label>
+        <!-- 思考（推理）档位。写 config.json 的 reasoningEffort，llm.mjs 的 turnOptions() 每轮读
+             ⇒ 存完下一轮生效，不用重启。`off` 走 `thinking:{type:'disabled'}`，其余走
+             `reasoning_effort:<档位>`；`none` 与 `off` 等价，故不单列。 -->
+        <label class="api-field">
+          <span id="api-effort-label"></span>
+          <select id="api-effort">
+            <option value="off"></option>
+            <option value="minimal"></option>
+            <option value="low"></option>
+            <option value="medium"></option>
+            <option value="high"></option>
+            <option value="xhigh"></option>
+            <option value="ultra"></option>
+            <option value="max"></option>
+          </select>
+        </label>
+        <!-- 微信（用户 m03985-C：把独立微信面板整段搬进来）。 -->
+        <p id="api-group-wechat" class="api-group-title"></p>
+        <label class="api-field">
+          <span id="api-wechat-enabled-label"></span>
+          <select id="api-wechat-enabled">
+            <option value="off"></option>
+            <option value="on"></option>
+          </select>
+        </label>
+        <label class="api-field">
+          <span id="api-wechat-token-label"></span>
+          <span class="api-key-row">
+            <input id="api-wechat-token" type="password" autocomplete="off" spellcheck="false">
+            <button id="api-wechat-token-reveal" type="button" aria-pressed="false"></button>
+          </span>
+        </label>
+        <label class="api-field">
+          <span id="api-wechat-base-url-label"></span>
+          <input id="api-wechat-base-url" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <!-- B 站（2026-10-21）：只做扫码登录，扫码成功后 cookie 落在 data/bili-auth.json，
+             「认真看」取帧时由主进程读它拼 Cookie 头。二维码是 src/qr.mjs 现画的 SVG。 -->
+        <p id="api-group-bili" class="api-group-title"></p>
+        <div class="api-bili">
+          <p id="api-bili-account" class="api-bili-account"></p>
+          <div id="api-bili-qr" class="api-bili-qr" hidden></div>
+          <p id="api-bili-hint" class="api-bili-hint" role="status"></p>
+          <div class="api-bili-actions">
+            <button id="api-bili-login" type="button"></button>
+            <button id="api-bili-logout" type="button"></button>
+          </div>
+        </div>
+        <div class="api-paths">
+          <p id="api-paths-label"></p>
+          <pre id="api-paths-value"></pre>
+        </div>
+        <p id="api-config-status" class="api-config-status" role="status" hidden></p>
+        <footer class="api-config-foot">
+          <button id="api-config-reload" type="button"></button>
+          <button id="api-config-save" type="button" class="is-primary"></button>
+        </footer>
+      </section>
+      <!-- 主题（用户 m02033「环形菜单里额外加入一个主题菜单」）。
+           与 #impression / #api-config 平级、互斥显示，从球菜单与环菜单进入。
+           两块内容：
+             ① 黑白 —— auto（跟随 host/系统）/ 浅色 / 深色。
+                真源是主进程的 nativeTheme.themeSource，改一次所有窗口一起翻；
+             ② 三个页面各自导入背景图（对话 / 历史 / 回忆），
+                每槽可选适配方式与蒙层浓度。
+           ★ 三态按钮与三个槽的卡片都由 theme-panel.js 用 createElement 建
+             （文案走 shell.js 的 messages 表），HTML 里不放中文字面量。 -->
+      <section id="theme" aria-labelledby="theme-title" hidden>
+        <header class="theme-head">
+          <h2 id="theme-title"></h2>
+          <button id="theme-close" type="button" aria-label="关闭"></button>
+        </header>
+        <p id="theme-note" class="theme-note" role="status" hidden></p>
+        <div class="theme-block">
+          <p id="theme-mode-label" class="theme-label"></p>
+          <div id="theme-mode" class="theme-modes" role="radiogroup" aria-labelledby="theme-mode-label"></div>
+        </div>
+        <div class="theme-block">
+          <p id="theme-bg-label" class="theme-label"></p>
+          <p id="theme-bg-hint" class="theme-hint"></p>
+          <div id="theme-bg-list" class="theme-bg-list"></div>
+        </div>
+        <footer class="theme-foot">
+          <button id="theme-open-folder" type="button"></button>
+        </footer>
+      </section>
+      <div id="tcc-gate" hidden>
+        <button id="tcc-dismiss" type="button"></button>
+        <h2 id="tcc-title"></h2>
+        <p id="tcc-app"></p>
+        <div class="tcc-row">
+          <h3 id="tcc-screen-name"></h3>
+          <p id="tcc-screen-reason"></p>
+          <p id="tcc-screen-path"></p>
+          <p id="tcc-screen-status"></p>
+          <button id="tcc-screen-open" type="button"></button>
+        </div>
+        <div class="tcc-row">
+          <h3 id="tcc-accessibility-name"></h3>
+          <p id="tcc-accessibility-reason"></p>
+          <p id="tcc-accessibility-path"></p>
+          <p id="tcc-accessibility-status"></p>
+          <button id="tcc-accessibility-open" type="button"></button>
+        </div>
+        <p id="tcc-footer"></p>
+        <div class="tcc-actions">
+          <button id="tcc-later" type="button"></button>
+          <button id="tcc-relaunch" type="button" hidden></button>
+        </div>
+      </div>
+      <div id="selection-chip" hidden>
+        <span id="selection-chip-text"></span>
+        <button id="selection-chip-dismiss" type="button"></button>
+      </div>
+      <form id="composer">
+        <label id="input-label"></label>
+        <!-- 附件缩略图条：有图才显示（JS 控制 hidden）。横向排列，每张可单独删。
+             放在输入框上方而不是内部 —— 输入框是 contenteditable，
+             塞非文本节点进去会被 innerText 读成乱码。 -->
+        <ul id="attach-strip" hidden></ul>
+        <div id="prompt" class="prompt-empty" role="textbox" aria-multiline="true" aria-labelledby="input-label" contenteditable="true"></div>
+        <button id="send-button" type="submit" aria-label="发送">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3L13 9H9V13H7V9H3L8 3Z" fill="currentColor"/>
+          </svg>
+        </button>
+        <!-- 拖拽入窗提示层：只在真拖文件时显示，pointer-events:none 不吃事件。 -->
+        <div id="drop-hint" hidden aria-hidden="true" role="status"></div>
+      </form>
+      <!-- 情绪装饰区域（deco-lane）：面板底部专门区域。
+           左侧 reasoning-lane：可滚动，显示思考过程/工具调用/状态文字。
+           右侧：GIF。与对话文字渲染层独立，不遮挡文字。 -->
+      <div id="deco-lane">
+        <div id="reasoning-lane">
+          <p id="status" role="status"></p>
+        </div>
+        <img id="deco" alt="" draggable="false" hidden>
+      </div>
+    </section>
+    <button id="ball" type="button">
+      <img id="ball-gif" src="orb-idle.gif" alt="" draggable="false">
+    </button>
+    <button id="dock-tab" type="button" hidden aria-hidden="true"></button>
+    <button id="stop" type="button" hidden></button>
+    <script type="module" src="shell.js"></script>
+  </body>
+</html>

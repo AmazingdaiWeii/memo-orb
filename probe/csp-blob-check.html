@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <!-- 与 helper/assets/floating.html:6 的 CSP **同一条**，唯一放宽处是 script-src 加了
+         'unsafe-inline'（本探针把脚本内联；被测的是 img-src，一字未改）。
+         目的：证实/证伪「img-src 'self' data: 会拒绝 blob: 缩略图」这一根因假设。 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' dsh-app://app; img-src 'self' data:; frame-src dsh-app://app">
+    <title>CSP blob check</title>
+  </head>
+  <body>
+    <script>
+      // 1x1 透明 PNG（base64），不靠 fetch（fetch 受 connect-src 管，会干扰结论）。
+      const B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+      function bytes(b64) {
+        const bin = atob(b64)
+        const arr = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+        return arr
+      }
+      function probe(label, src) {
+        return new Promise((resolve) => {
+          const img = new Image()
+          img.onload = () => resolve(label + ' LOADED')
+          img.onerror = () => resolve(label + ' BLOCKED')
+          img.src = src
+          document.body.append(img)
+        })
+      }
+      async function main() {
+        const blob = new Blob([bytes(B64)], { type: 'image/png' })
+        const blobURL = URL.createObjectURL(blob)
+        const r1 = await probe('blob-url', blobURL)
+        console.log('[CSPCHK] ' + r1)
+        const r2 = await probe('data-url-control', 'data:image/png;base64,' + B64)
+        console.log('[CSPCHK] ' + r2)
+        console.log('[CSPCHK] done')
+      }
+      main()
+    </script>
+  </body>
+</html>

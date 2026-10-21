@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>kfdecode</title>
+<style>
+  /* 这个窗口永远 show:false，样式只是为了别让元素影响解码 */
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden }
+  #v { display: block; width: 2px; height: 2px; opacity: 0 }
+</style>
+</head>
+<body>
+<video id="v" muted playsinline preload="auto"></video>
+<canvas id="c"></canvas>
+<script>
+/**
+ * 解码器页面：收一坨「稀疏 mp4」的 base64，跳关键帧、截成 JPEG，回给主进程。
+ *
+ * 这里只干三件事：blob → <video> → <canvas>。
+ * 不用 MSE（SourceBuffer 的状态机是纯负担）；`blob:` 直接喂 `<video>` 就行。
+ */
+const { ipcRenderer } = require('electron')
+
+const v = document.getElementById('v')
+const c = document.getElementById('c')
+const ctx = c.getContext('2d', { alpha: false })
+
+function once(el, name, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      el.removeEventListener(name, h)
+      reject(new Error('等 ' + name + ' 超时（' + ms + 'ms）'))
+    }, ms)
+    function h() {
+      clearTimeout(timer)
+      el.removeEventListener(name, h)
+      resolve()
+    }
+    el.addEventListener(name, h, { once: true })
+  })
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function b64ToBytes(b64) {
+  const bin = atob(b64)
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+/** 按 maxOut 等比缩到框内（只在超过时缩） */
+function fit(w, h, maxOut) {
+  if (!maxOut || !maxOut.w || !maxOut.h) return { w, h }
+  const s = Math.min(1, maxOut.w / w, maxOut.h / h)
+  return { w: Math.max(2, Math.round(w * s)), h: Math.max(2, Math.round(h * s)) }
+}
+
+ipcRenderer.on('kf:job', async (_e, job) => {
+  const t0 = performance.now()
+  const out = { id: job.id, ok: false, frames: [], meta: {}, error: null }
+  let objectUrl = null
+  try {
+    const bytes = b64ToBytes(job.b64)
+    out.meta.blobBytes = bytes.length
+    objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
+
+    v.src = objectUrl
+    await once(v, 'loadedmetadata', 20_000)
+    out.meta.videoWidth = v.videoWidth
+    out.meta.videoHeight = v.videoHeight
+    out.meta.duration = Number.isFinite(v.duration) ? v.duration : null
+    out.meta.metaMs = Math.round(performance.now() - t0)
+
+    const times = Array.isArray(job.times) ? job.times : []
+    if (!times.length) throw new Error('kf:job 没给 times')
+
+    const q = typeof job.quality === 'number' ? job.quality : 0.85
+    const size = fit(v.videoWidth || 1, v.videoHeight || 1, job.maxOut)
+
+    for (const t of times) {
+      // ★ 落在关键帧之后 0.15s，避免正好压在边界上拿到上一帧
+      const dur = Number.isFinite(v.duration) ? v.duration : t + 1
+      const target = Math.max(0, Math.min(t + 0.15, dur - 0.05))
+      v.currentTime = target
+      await once(v, 'seeked', 15_000)
+      await sleep(120) // 给解码器留一帧的时间
+
+      c.width = size.w
+      c.height = size.h
+      ctx.drawImage(v, 0, 0, size.w, size.h)
+      const dataUrl = c.toDataURL('image/jpeg', q)
+      const payload = dataUrl.split(',')[1] || ''
+      out.frames.push({
+        t: t,
+        seekTo: +target.toFixed(3),
+        w: size.w,
+        h: size.h,
+        bytes: atob(payload).length, // 精确字节数（别用 base64 长度估算，会差 1~2）
+        dataUrl: dataUrl,
+      })
+    }
+
+    out.ok = out.frames.length === times.length
+    out.meta.decodedMs = Math.round(performance.now() - t0)
+  } catch (err) {
+    out.error = String((err && err.message) || err)
+    out.meta.readyState = v.readyState
+    out.meta.networkState = v.networkState
+    out.meta.mediaError = v.error ? { code: v.error.code, message: v.error.message } : null
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl)
+    v.removeAttribute('src')
+    v.load()
+  }
+  ipcRenderer.send('kf:done', out)
+})
+</script>
+</body>
+</html>

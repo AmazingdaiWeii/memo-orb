@@ -1,0 +1,361 @@
+/* context-menu.css —— 渲染层右键菜单（DOM 实现）的样式。
+ *
+ * 与面板同套token（floating.css 的 --black / --white / --input-bg / --border /
+ * --pin），所以亮暗主题自动跟随 body[data-ds-dark-theme]，不用额外处理。
+*
+ * z-index 取 5：高于历史列表(4)，低于拖拽热区（拖拽热区要在最上层吃事件）。
+ * 注意**永远不要**把菜单的 z-index 设成最大 —— 拖拽热区被盖住就拖不动窗口了。
+ *
+ * ⚠️ 这里**不允许**出现任何 `position:fixed; inset:0` 的全窗口命中层。
+ * 2026-10-07踩过：铺了这么一层「点击外部关闭」的遮罩，它会盖住球，
+ * 球的 hover 事件被吞 → 球再也点不动；而窗口的鼠标穿透又会先于点击生效，
+ * 遮罩自己的 pointerdown 收不到事件，退出通道被自己堵死，整块 UI 永久自锁。
+ * 「点击外部关闭」现在由context-menu.js 在 document 上判断落点实现。 */
+
+.ctxmenu {
+  position: fixed;
+  /* ★★ 必须是**全页面最高的 z-index**（2026-10-07 用户实测「右键ui又消失了」）。
+   *
+   * 右键菜单与缩放手柄是同一层叠上下文里的兄弟（都`position:fixed` 挂 body），
+   * 而手柄的 DOM 在菜单**之后**创建 —— 同z-index 时后来者压在上面。
+   * 手柄有 8 条（其中 3 条可见），每条 `::before` 还向外扩5px、
+   * 角手柄命中区 22px，横跨窗口四条边。菜单 z-index 只要低于手柄，
+   * 弹到靠边位置就被盖住、点不动 —— 用户看到的正是「右键ui消失了」。
+   *
+   * 层级约定（别再改）：
+   *   1=面板底层 2=输入框 3=普通控件 4=历史列表 5=记忆中心 6=缩放手柄
+   *   **9=右键菜单（永远最高，任何浮层都要让路）**
+   * 改任何 z-index 前先确认不会盖住菜单。 */
+  z-index: 9;
+  min-width: 172px;
+  max-width: 280px;
+  padding: 6px;
+  border: 1px solid var(--menu-border);
+  border-radius: 14px;
+  /* ── 毛玻璃（2026-10-08 按用户要求强化）───────────────────────────────
+   * ★ 实测（probe/ctxmenu-glass-probe.cjs）：本菜单的 backdrop-filter **一直有效**
+   *   —— 同窗口只换底色，菜单平均色随底色偏移（红↔蓝 色偏 128 / 红↔琥珀 93）。
+   *   所以之前「看不出玻璃」不是失效，是**底色太不透明**：写死 0.72 的 alpha
+   *   把混进来的背景压掉了 ~72%。
+   *
+   *   现改成读主题变量 --menu-bg / --menu-blur（在 floating.css 亮暗两套里各声一份），
+   *   alpha 砍到 0.42/0.45，模糊提到 40px —— 薄 + 强模糊才像玻璃，
+   *   薄 + 弱模糊会显脏。
+   * ★ 兜底：万一变量没定义（比如别处单独引这个 css 做测试页），
+   *   下面这行 fallback 保证菜单仍有可见底色，不会变成全透明读不了字。 */
+  /* ★★ 可读性兜底（实测数据在 probe/ctxmenu-glass-probe.cjs 的输出里）：
+   *   把菜单做薄之后，**亮背景图 + 暗主题**这一档出事 —— 菜单底亮度会被
+   *   背景拉高到 0.37，白字对比只剩 2.43:1（<3:1，小字吃力）。
+   *   亮主题没事（白底 + 深字 8.07:1）。
+   *
+   *   修法不是把菜单又调厚（那就回到「实心板」了），而是**只压亮度、不丢透明**：
+   *   在 `background` 里先铺一道**深色渐变 scrim**，再叠主题色。
+   *   渐变把「亮背景透过来的高亮区」压下去，白字于是永远有对比；
+   *   而两层都是半透明的，底下的颜色变化仍透得出来（玻璃感保留）。
+   *
+   *   ★ 为什么用 layered background 而不是 `::before` 伪元素：
+   *     绝对定位的伪元素会**盖在正常流内容（菜单文字）之上**
+   *     （定位元素在本流内容之后绘制），用它就得给每个菜单项补 z-index。
+   *     多层 background 从下往上叠、文字永远在最上，零副作用。
+   *   ★ 渐变方向竖直：顶部略亮（接住外阴影的高光）、底部略暗，
+   *     让菜单有「玻璃块」的体积感，不是一块均质色板。 */
+  background:
+    var(--menu-scrim, linear-gradient(to bottom, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.28))),
+    var(--menu-bg, rgba(21, 21, 23, 0.45));
+  backdrop-filter: var(--menu-blur, blur(40px) saturate(1.6));
+  -webkit-backdrop-filter: var(--menu-blur, blur(40px) saturate(1.6));
+  /* 外阴影 + 顶部内高光：玻璃边缘的两条高光，缺了它薄底会糊在背景里分不清层次 */
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+@keyframes ctxmenu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctxmenu {
+    animation: none;
+  }
+}
+
+.ctxmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+/* ★ hover 底从 0.1 提到 0.16：菜单自己的底色变薄了（--menu-opacity 0.42/0.45），
+   hover 若还按旧值就几乎看不出「鼠标在哪一行」。 */
+.ctxmenu-item:hover:not([disabled]),
+.ctxmenu-item:focus-visible:not([disabled]) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* 键盘焦点要有清晰可见的环，鼠标点击时不要 */
+.ctxmenu-item:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: -2px;
+}
+
+.ctxmenu-item[disabled] {
+  color: rgba(255, 255, 255, 0.4);
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* 破坏性操作（删除）用错误色，但不要用满屏红 —— 只标文字 */
+.ctxmenu-item.danger {
+  color: #ff6b6b;
+}
+
+.ctxmenu-item.danger:hover:not([disabled]),
+.ctxmenu-item.danger:focus-visible:not([disabled]) {
+  background: rgba(255, 107, 107, 0.15);
+}
+
+.ctxmenu-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctxmenu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 1;
+}
+
+/* 窄面板下菜单也要能用：贴着窗口边时不要溢出 */
+.ctxmenu {
+  max-width: calc(100vw - 8px);
+}
+
+/* ── 行内重命名 ────────────────────────────────────────────────
+ * 用户明确要求「不要二级弹窗，把标题临时变成可编辑」——
+ * `window.prompt` 在无边框透明置顶窗口里不弹出（P0-4 实测失败），
+ * 所以改成标题行原地变成编辑态。 */
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.rename-input {
+  flex: 1 1 auto;
+  min-width: 0;                /* flex 子项不给这个会拒绝收缩，把按钮挤出视野 */
+  padding: 5px 8px;
+  border: 1px solid var(--pin);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--black);
+  background: var(--input-bg);
+  outline: none;
+}
+
+.rename-input:focus {
+  border-color: var(--pin);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pin) 30%, transparent);
+}
+
+.rename-btn {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--black);
+  background: var(--input-bg);
+  cursor: pointer;
+}
+
+.rename-btn:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--pin) 18%, transparent);
+}
+
+/* ✓ 是「确认」不是「删除」—— 别用 --error（红），那会让人以为点下去要坏事。
+   用 --pin（中性）做hover 底，✓ 本身的文字色继承即可。 */
+.rename-btn.confirm:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--pin) 22%, transparent);
+}
+
+.rename-btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 编辑态的行不再响应「点开这段对话」，避免误切换 */
+.history-row.renaming {
+  cursor: default;
+}
+
+/* ── 面板拖拽缩放手柄（P0-5） ────────────────────────────────────
+ * 窗口是 frame:false + transparent:true，Windows 上**没有系统 resize 热区**，
+ * 用户不存在「边框」可拖 —— 必须自绘。详见 resize-handles.js 头部。
+ *
+ * 位置：铺在面板**外侧**那圈透明 chrome 上（`--chrome`，12px），
+ * 不侵占面板内容 —— 面板里有输入框和按钮，抢走点击就坏了。
+ *
+ /* ⚠️ z-index 用 6（在记忆中心 5 之上、**右键菜单 9 之下**）：
+ *   菜单弹着的时候不该还能拖窗口，所以手柄不能盖住菜单；
+ *   但菜单是「临时浮层」，任何时候都必须是全页面最高层。
+ * 收起态由 JS 设 `display:none`，**不能**只给 opacity:0，
+ * 否则那 8 条窄条会继续吃事件，球就拖不动了。 */
+.resize-handle {
+  position: fixed;
+  z-index: 6;
+  /* 悬停时给一点点反馈，让用户知道这儿能拖 */
+  background: transparent;
+  /* 移除 transition：hover 时的过渡动画可能导致窗口微小重绘/偏移 */
+}
+
+/* ★ hover 反馈：只在**面板边缘**显一条 1px 细线（2026-10-07 用户实测
+ * 「拖动ui太难看」，参照 deco-plan/preview.html）。
+ *
+ * 原生 `resize:both` 的手柄是浏览器画的：右下角几根斜线，极淡，
+ * 平时几乎看不见，hover 才显形。**我们要的就是这种「低调」**——
+ * 之前这里给整条 6px 边条刷一层淡色带，hover 时面板上横着一条粗色带，
+ * 像贴了胶带，这就是「难看」的来源。
+ *
+ * 为什么用 inset box-shadow 而不是渐变：要的是「贴着某一条边的一根线」，
+ * 阴影能精确指定是哪条边、几 px，不需要算百分比。
+ * 不铺整条色带 → 不遮挡面板内容，也不干扰阅读。 */
+.resize-handle:hover,
+.resize-handle[data-dragging="true"] {
+  background: transparent;
+}
+/* ★ 2026-10-08（用户 m01764）：提示线画在**靠面板的那一侧** ——
+ *   边条已按 `resize-handles.js` 的 `geometry()` 贴到「面板那条看得见的边」外侧摆，
+ *   所以线落点就是用户想拖的那条边，不再悬空在透明 chrome 里。 */
+.resize-handle[data-dir="n"]:hover,
+.resize-handle[data-dir="n"][data-dragging="true"] {
+  box-shadow: inset 0 -1px 0 var(--pin);
+}
+.resize-handle[data-dir="s"]:hover,
+.resize-handle[data-dir="s"][data-dragging="true"] {
+  box-shadow: inset 0 1px 0 var(--pin);
+}
+.resize-handle[data-dir="w"]:hover,
+.resize-handle[data-dir="w"][data-dragging="true"] {
+  box-shadow: inset -1px 0 0 var(--pin);
+}
+.resize-handle[data-dir="e"]:hover,
+.resize-handle[data-dir="e"][data-dragging="true"] {
+  box-shadow: inset 1px 0 0 var(--pin);
+}
+
+/* ★ 边条的「加宽命中区」（不可见）。
+ *
+ * 元素本身只有 6px（视觉），但外面套一个 16px 的 `::before` 接鼠标 ——
+ * 用户抱怨「判定框太窄」说的是**点不中**，那和「看不看得见」是两个问题，
+ * 分成两个尺寸各自解决：视觉保持细，命中区放宽。
+ *
+ * ★ 2026-10-08（用户 m01764）：加宽命中区改为从**面板那条看得见的边**向内外各撑开
+ * —— 外侧 6px（仍落在窗口透明的 chrome 圈里，不侵占面板内容）、内侧 4px。
+ * 旧版是从窗口外缘向内撑，整条命中区都待在 chrome 圈里、跟面板边界不重叠，
+ * 用户照着面板的边去拖**永远差 12px 拖不到**。 */
+.resize-handle:not(.is-corner)::before {
+  content: "";
+  position: absolute;
+}
+
+.resize-handle[data-dir="n"]::before { left: 0; right: 0; top: 0; height: 10px; }
+.resize-handle[data-dir="s"]::before { left: 0; right: 0; bottom: 0; height: 10px; }
+.resize-handle[data-dir="w"]::before { top: 0; bottom: 0; left: 0; width: 10px; }
+.resize-handle[data-dir="e"]::before { top: 0; bottom: 0; right: 0; width: 10px; }
+
+/* ╔═══════════════════════════════════════════════════════════════════╗
+ * ★★ 角手柄的**视觉已整体删除**（2026-10-07 11:36，用户第三轮反馈）
+ *
+ * 用户原话：「红框标注的这个拖动条，仍然在框外，尤其是我这种白色背景下，
+ *   它不仅可视性差，而且，它是在窗口外的一部分，不美观。
+ *   而且我发现，拖动窗口调整大小的功能似乎恢复了，
+ *   因此，我希望你这一轮仅删除右下角的这个拖动ui。」
+ *
+ * 结论：**角手柄（CORNER）整体退役，只留两条边。**
+ *
+ * 为什么这次连命中区一起删，而不是只删 `::after` 的图案：
+ *   留着一条「看不见但吃事件」的 22px 命中区，比不删更糟——
+ *   ① 用户看不到任何提示，却会在那个位置莫名其妙触发 resize；
+ *   ② 它还压在面板角上（z-index 6 > 输入框 2），继续抢点击；
+ *   ③ 用户已确认「拖动窗口调整大小的功能似乎恢复了」——
+ *      也就是**边条已经够用**，角是冗余的第二入口。
+ *
+ * ⚠️ 想恢复的话：把 `resize-handles.js` 的 `refresh()` 改回
+ *   `new Set(on ? [free.h, free.v, safeCorner(dir)] : [])`
+ *   即可 —— JS 侧的角手柄元素、CORNER=22 几何、`safeCorner()`
+ *   **全部原样保留着**，只差这里的 CSS 和那一行 refresh。
+ * ╚═══════════════════════════════════════════════════════════════════╝ */
+
+/* 键盘可达性：Tab 能聚焦到手的边，显示焦点环 */
+.resize-handle:focus-visible {
+  outline: 2px solid var(--pin);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resize-handle {
+    transition: none;
+  }
+}
+
+/* 拖拽中的尺寸读数。
+ * 为什么不让面板跟手变长：窗口没变大之前，把面板撑宽只是把内容画到
+ * 窗口边界之外，会被裁掉 —— 用户拖了半天看不到任何变化。
+ * 真要跟手就得每帧一次 setBounds，主进程每次都要 clamp + 重算展开方向，
+ * 拖拽途中方向翻转会剧烈抖动。详见 resize-handles.js 头部。
+ *
+ * 位置由 JS 按自由角设（top/bottom + left/right 四选二），
+ * 刻意贴着**远离球**的那一侧 —— 贴球那侧盖住角色就适得其反了。 */
+.resize-readout {
+  position: fixed;
+  /* 7：高于手柄（6）——拖拽读数是临时反馈，不该被自己的手柄压住；
+   * 但**必须低于右键菜单（9）** —— 拖到一半弹菜单时菜单要在最上层。 */
+  z-index: 7;
+  padding: 4px 10px;
+  border-radius: 8px;
+  /* 底/字用 --black + --white 这一对：亮色主题下是深底白字，
+   * 暗色主题下自动翻成浅底深字（见 floating.css 的两套定义），
+   * 两个主题都有对比度。⚠️ 不能拿 --pin 当底色 —— 它亮色是深灰、
+   * 暗色是浅灰，配固定文字色必有一边糊掉。 */
+  background: var(--black);
+  color: var(--white);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}

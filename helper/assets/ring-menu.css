@@ -1,0 +1,325 @@
+/*
+  环形菜单样式（方案C · 独立窗口）。
+
+  ★ 所有尺寸只有一个来源：ring-geometry.js 算出的几何，由 ring-menu.js 写进
+    :root 的 CSS 变量。这里**不允许出现裸的魔法数字**（旧实现的
+    「200px 容器 / 半径 62 / 按钮 48」三处硬编码就是这么漂移出去的）。
+    探针 probe/ring-geometry-test.mjs 会断言这两边一致。
+
+  参考图观感（554×481 用户基准图）：深色近黑半透明宽环、环带占外径约 1/3、
+  9 个白色胖图标沿环均匀分布且**直立**、中心大面积留空让角色站在里面、
+  环内外边缘柔和。我们这里放 5 项（orb 只真有 5 个球级功能，不臆造）。
+*/
+
+:root {
+  /* 由 JS 按 ring-geometry.js 覆写；这里是几何模块默认值的等价物，仅作兜底 */
+  --ring-window: 280px;
+  --ring-outer: 248px;
+  --ring-inner: 168px;
+  --ring-band: 40px;
+  --ring-icon: 25px;
+  --ring-pad: 16px;
+  --ring-mid: 104px;
+  --ring-shadow-room: 56px;
+  --ring-font: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --accent: #7aa2ff;
+  --panel-preview: rgba(21, 21, 23, 0.7);
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--ring-font);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--ring-window);
+  height: var(--ring-window);
+  /* 窗口尺寸与几何不一致时也保持居中 —— 宁可露出边距，也不要让菜单偏出窗口 */
+  transform: translate(-50%, -50%);
+  transform-origin: 50% 50%;
+}
+
+/* ★★★ 2026-10-08 第四轮：投影层与环带**不再**用 `inset: var(--ring-pad)` 定位。
+ *
+ *   用户报「环形菜单上有一个隐约的方块」。逐像素量过他的截图：
+ *   环窗口足迹正好 349px（= 280 × 1.246 缩放），方块边缘就压在窗口边界上
+ *   （第 184 行 x≤72 是纯白 255，x=73 直接跳到 224 再单调变暗到环）。放大差值图
+ *   （probe/_ring_block_diff.png）能看出一整个**圆角矩形**。
+ *
+ *   根因：`#plane` 的 `box-shadow: 0 22px 54px` 需要 22 + 54/2 ≈ 49px 的余量，
+ *   而窗口只给了 `--ring-pad: 16px`。多出来的部分**被窗口边界垂直切平**，
+ *   梯度在窗口边上戛然而止 ⇒ 看起来就是「一个隐约的方块」。
+ *   （顺带排除了「窗口不透明」这个猜测：真 Electron 探针测出四角 alpha ≈ 1.6、最小 0，
+ *     透明是好的。见 probe/ring-transparency-probe.cjs。）
+ *
+ *   修法：**把「窗口留白」和「环的视觉内缩」拆开**。
+ *   环带与投影层改为「固定 outer 尺寸 + 居中」，不再受 --ring-pad 影响 ——
+ *   于是可以放心把窗口撑到够大，而环的外径、图标位置、命中区**一个像素都不动**。
+ *   `--ring-shadow-room` 就是那圈纯给阴影用的透明余量。
+ *   加一条断言把「阴影最大外扩 ≤ shadow-room」钉死，见 probe/ring-geometry-test.mjs §5。
+ */
+#plane,
+#band {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--ring-outer);
+  height: var(--ring-outer);
+  /* 不用 inset：见上面注释。居中 + 自身尺寸 = 与窗口留白解耦 */
+  margin: calc(var(--ring-outer) / -2) 0 0 calc(var(--ring-outer) / -2);
+  border-radius: 50%;
+}
+
+/* 投影层：不能挂在 #band 上 —— 环带被 mask 挖空后，box-shadow 会被同一张 mask 裁掉。
+   这层是纯透明圆盘，只在圆盘外侧投阴影，中心孔里看不到阴影。
+ *
+ * ★★ 2026-10-08 第五轮（第二次）：阴影参数本身也改了 —— 光加余量不够稳。
+ *   用户第二次报「还是有隐约的方块，白色桌面下非常突出」。
+ *   量他的截图：染色区 **349×349 设备px** = 旧窗口 280 CSS × 1.246 —— 说明那次跑的是
+ *   **改动前的实例**（我的源码是对的，但 orb 没重启）。
+ *   不过既然要为「不可能再出方块」兜底，就把阴影也调成**天然够软**：
+ *     - 原 `0 22px 54px rgba(0,0,0,.52)`：外扩 22+54/2 = 49px，且 52% 的浓度偏高，
+ *       在窗口边界处仍有一定不透明度 —— 万一边界再靠近一点就又成方块。
+ *     - 现改为「更小 offset + 更大 blur + 更低浓度」，外扩 = 14 + 72/2 = **50px**
+ *       （shadowRoom 56 仍装得下），但 38% 浓度让边界处已衰减到几乎为 0。
+ *   ★ 断言 probe/ring-geometry-test.mjs §5.2 会**从这段 CSS 反算真实外扩**，
+ *     所以改这些数字必须同时确认 ≤ --ring-shadow-room（56）。
+ */
+#plane {
+  box-shadow:
+    0 14px 72px rgba(0, 0, 0, 0.38),
+    0 3px 16px rgba(0, 0, 0, 0.32);
+}
+
+/* 环带：径向渐变 + mask 挖中心孔 */
+#band {
+  background:
+    radial-gradient(circle at 34% 24%, #353858 0%, #23253d 36%, #15161f 68%, #0b0c12 100%);
+  -webkit-mask: radial-gradient(
+    circle at 50% 50%,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) calc(var(--ring-inner) / 2 - 0.5px),
+    #000 calc(var(--ring-inner) / 2 + 0.5px)
+  );
+  mask: radial-gradient(
+    circle at 50% 50%,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) calc(var(--ring-inner) / 2 - 0.5px),
+    #000 calc(var(--ring-inner) / 2 + 0.5px)
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+    inset 0 0 26px rgba(0, 0, 0, 0.55);
+  opacity: 0.94;
+}
+
+/* 透明度轨道：外侧细圆环 + 进度弧 + 圆点（收尾待办 §4.1 的拖动条） */
+#orbit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+#orbit-track,
+#orbit-value {
+  fill: none;
+  stroke-width: 3;
+}
+#orbit-track {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+#orbit-value {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  opacity: 0.9;
+}
+#orbit-thumb {
+  fill: #fff;
+  stroke: rgba(12, 13, 20, 0.6);
+  stroke-width: 2;
+  opacity: 0;
+  transition: opacity 140ms;
+}
+body.is-slider-active #orbit-thumb,
+body.is-slider-hover #orbit-thumb {
+  opacity: 1;
+}
+body.is-slider-active #orbit-value {
+  opacity: 1;
+}
+
+#items {
+  position: absolute;
+  inset: 0;
+}
+
+/* 菜单项：只平移、不旋转 —— 图标直立（对齐参考图）。
+   位置来自 --dx/--dy（ring-geometry.itemPositions），--s 是 hover 缩放。 */
+.ring-item {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--ring-icon);
+  height: var(--ring-icon);
+  margin: calc(var(--ring-icon) / -2) 0 0 calc(var(--ring-icon) / -2);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  transform: translate3d(var(--dx, 0px), var(--dy, 0px), 0) scale(var(--s, 1));
+  transition: transform 140ms cubic-bezier(0.4, 0, 0.2, 1), background 140ms, color 140ms;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.ring-item::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(160, 190, 255, 0.22), rgba(160, 190, 255, 0) 70%);
+  opacity: 0;
+  transition: opacity 140ms;
+}
+.ring-item:hover,
+.ring-item:focus-visible {
+  --s: 1.18;
+  background: rgba(122, 162, 255, 0.16);
+  color: #fff;
+  outline: none;
+}
+.ring-item:hover::before,
+.ring-item:focus-visible::before {
+  opacity: 1;
+}
+.ring-item:active {
+  --s: 0.94;
+}
+.ring-item svg {
+  width: 100%;
+  height: 100%;
+  /* icons.js 的 svg 自带 stroke-width="1"，这里用 CSS 覆盖到 1.6：
+     参考图的图标是「胖」的，1px 描边在 25px 盒子里显得单薄。 */
+  stroke-width: 1.6;
+}
+
+/* 悬停标签：沿半径**向环内**弹出（环外已经没有窗口余量了） */
+.ring-item-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(calc(-50% + var(--lx, 0px)), calc(-50% + var(--ly, 0px)));
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font: 500 12px/1.35 var(--ring-font);
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(10, 11, 17, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* 同上：透明窗口里不用 backdrop-filter（底色相应加深补观感）。 */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+.ring-item:hover .ring-item-label,
+.ring-item:focus-visible .ring-item-label {
+  opacity: 1;
+}
+
+/* 拖动提示：座落中心孔，只读不挡事件 */
+#hud {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+
+/* ★ `hidden` 必须显式生效。
+   `#hud { display: flex }` 是 ID 选择器，优先级高于 UA 的 `[hidden] { display: none }`，
+   所以只写 hidden 属性等于没写：本该「拖动时才出现」的数值 + 材质预览块
+   变成常驻在中心孔里的灰块，正好盖住站在孔里的球
+   （用户实测：「菜单中心有一层灰色蒙罩遮挡了球体本身的 UI」）。
+   同源教训：项目里凡是 `#id { display: … }` 的元素，都要补一条 `[hidden]` 规则。 */
+#hud[hidden] {
+  display: none;
+}
+#hud-swatch {
+  width: 66px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--panel-preview);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  /* ⚠️ 不许加 backdrop-filter：环窗口同样是 transparent:true 的透明窗口，
+   *   任何 backdrop-filter 都可能让整窗被合成成直角矩形（球面板上真实出现过，
+   *   见 floating.css #panel 里那段注释）。 */
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+#hud-value {
+  font: 600 12px/1 var(--ring-font);
+  color: #fff;
+  background: rgba(10, 11, 17, 0.74);
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 开合动画：窗口是 showInactive 直接显示/隐藏的，没有任何补间，
+   所以「出现」的动感全靠这两条 keyframes，靠 .is-open 的增删重放。 */
+@keyframes ring-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9) rotate(-5deg);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) rotate(0deg);
+  }
+}
+@keyframes item-in {
+  from {
+    opacity: 0;
+    transform: translate3d(var(--dx, 0px), var(--dy, 0px), 0) scale(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(var(--dx, 0px), var(--dy, 0px), 0) scale(1);
+  }
+}
+#ring.is-open {
+  animation: ring-in 170ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+#ring.is-open .ring-item {
+  animation: item-in 200ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  animation-delay: calc(var(--i, 0) * 18ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #ring.is-open,
+  #ring.is-open .ring-item {
+    animation: none;
+  }
+  .ring-item,
+  .ring-item-label,
+  #orbit-thumb {
+    transition: none;
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "model": "openai-compatible/deepseek-flash",
+  "agentName": "Orb",
+  "theme": "dark",
+  "locale": "zh",
+  "agentId": null,
+  "mode": "chat",
+  "agents": {},
+  "impression": { "everyHours": 24 },
+  "electronPath": "runtime/electron/electron.exe",
+  "electronFlags": [],
+  "legacyUrl": null,
+  "permission": "read-only"
+}

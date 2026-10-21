@@ -1,0 +1,109 @@
+# ── 依赖 ─────────────────────────────────────────────
+node_modules/
+
+# ── Electron 运行时（367 MB，GitHub 单文件 100 MB 硬限）──
+# 不入库。首次运行按 README 的「安装」章节下载并解压到 runtime/electron/，
+# 或改 config.json 的 electronPath 指向已有的 electron 可执行文件。
+runtime/
+
+# ── 本地配置（含 agentId / ws 端口 / 模型名）─────────
+config.json
+!config.example.json
+
+# ── 运行数据（★ 开源前最高优先级，含真实密钥与全部私人对话）──
+# data/providers/auth.json  = API key 明文（sk-…）
+# data/wechat.json          = 微信 botToken / botId / userId
+# data/conversations/       = 每一轮对话原文
+# data/memfs/               = 她的记忆仓库（含 journal 里的一切私人细节）
+# data/policy.json          = 本机放行/禁止清单
+# 用 data/* 而不是 data/ ，是为了能单独放行示例配置（目录级忽略无法再豁免子文件）
+data/*
+!data/agents-remote.example.json
+
+# ── 探针沙箱数据根（★ 2026-10-22 补：根目录 9 个 _sandbox-* 里有 5 份
+#    providers/auth.json，内容是**与 data/providers/auth.json 同一个真 key**。
+#    .gitignore 原来的 data/* 挡不住它们 ⇒ git add -A 会把真密钥写进历史。
+#    新探针一律指 probe/_sandbox-*/（下面已有规则），根目录这些属历史遗留。）
+_sandbox-*/
+
+# ── 3D 实验现场与素材备份（体积大、且 bak/ 里装着**未获授权**的原项目素材）
+#    ★ 背景/ 不在此列：用户 2026-10-22 明确要求壁纸随发布包分发。
+art/
+bak/
+
+# 运行时锁（含持有者 pid / 时间戳，纯本机状态）
+locks.json
+
+# ── 运行时产物 ───────────────────────────────────────
+logs/
+.userdata/
+*.log
+
+# 会话删除记账（含真实会话 id 与标题，不要进仓库）
+logs/history-backups/
+
+# 对话导出（隐私锁的逃生通道产物：**整段对话明文**，绝不能进仓库）
+exports/
+
+# ── 探针残留与临时产物 ───────────────────────────────
+_probe_body_*.json
+probe/config.bak.json
+probe/letta-ws.txt
+
+# ★ 探针里的「历史请求快照 / 日志 / 旧版验收记录」——
+#   2026-10-08 审计发现 probe/_dump/body-*.json 含**旧版 persona 全文 +
+#   真实 agent id + 本机临时路径**；probe/_h*.log 同样带 agent id 与本机路径。
+#   这些是「携带过去的记忆」最典型的载体，一律不入库、不随发布包分发。
+probe/_dump/
+probe/_h*.log
+probe/_d2.log
+probe/v14-results/
+probe/_mem-bak/
+probe/_ui-bak-*/
+probe/_face_scan*/
+probe/_mateengine-evidence/
+probe/*.bak.*
+probe/_*.txt
+
+# ★ 探针跑「真机一轮」时用的沙箱数据根（`ORB_DATA=probe/_sandbox-*`）——
+#   里面会被拷一份 `bili-auth.json`（SESSDATA = 账号凭据）与模型密钥，绝不能入库。
+probe/_sandbox-*/
+probe/_tmp-*/
+
+# ── AI 素材中间产物（体积大，且非代码资产）────────────
+generated-images/
+deco-plan/raw/
+deco-plan/preview/
+deco-plan/prep/
+# 参考图带平台水印，不可再分发
+deco-plan/reference/
+# ★ deco-plan/backup/ 是一次 UI 改造前的整目录快照（误放，与 deco 无关），
+#   里面是一份旧代码副本，且含真实 conversation id。不入库。
+deco-plan/backup/
+
+# ── 上游源码副本 / 预览草稿（工作产物，非交付物）───────
+helper-src/
+preview-status-capsule/
+
+# ── 人格文档的历史备份（含旧 persona 与 agent id）─────
+鲸鱼娘_persona.md.bak*
+鲸鱼娘_persona.md.bak-*
+
+# ── AI 助手的工作记忆与日志（私有）────────────────────
+.workbuddy/
+CLAUDE.md
+AGENTS.md
+
+# ── 用户创作的内容资产（不进仓库）─────────────────────
+岛屿_全文.txt
+
+# ── 编辑器与系统 ─────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── 依赖锁：保留 package-lock.json，仅忽略临时备份 ────
+*.bak
+*.bak.json

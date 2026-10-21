@@ -1,0 +1,2750 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  --ball: 72px;
+  --composer-height: var(--ball);
+  --prompt-line: 20px;
+  --prompt-pad: 12px;
+  --composer-max: calc(var(--ball) + var(--prompt-line) * 3);
+  --chrome: 12px;
+  --panel-radius: 36px;
+  --selection-chip: 28px;
+  /* 情绪装饰 GIF 的边长（P1-5）。素材是 960×960 的正方形，
+     按 deco-plan/preview.html 敲定方案：右下角、输入框上方，
+     不遮挡对话文字，不与左下角球体抢位置。 */
+  --deco-size: 96px;
+  /* 装饰区域高度：面板底部专门留给 GIF 的区域，与对话文字渲染层独立。
+     对话文字滚动区域由面板 padding 挡住，不会延伸到这里。 */
+  --deco-lane-height: 104px;
+  /* Shell chrome keeps the fork's exact palette — the bar must match the
+   * original ball window pixel for pixel. Chat content styles itself through
+   * the --dsw-* token sheets (theme.css) instead of these variables. */
+  --black: #111111;
+  --white: #ffffff;
+  --input-bg: #eeeeee;
+  --border: #8a8a93;
+  --pin: #5c5c66;
+  --error: #a33;
+  /* 强调色（P2-4 图片功能引入）：目前只用于「拖拽入窗」提示环。
+     不用 --pin 是因为那是个中性灰，提示环要一眼看得见；
+     也不用 --error，那是「危险」语义，拖张图进来不是干坏事。 */
+  --accent: #2f6fd0;
+  --ball-shadow: 0 3px 8px rgba(17, 17, 17, 0.32);
+  --panel-shadow: 0 4px 8px rgba(17, 17, 17, 0.22);
+  /* 毛玻璃面板背景（半透明，配合 backdrop-filter 糊住后面的桌面/窗口）。
+     不透明度 0.7：既能透出后面的内容，又不会让 GIF 像浮在桌面上。
+     ★ --panel-opacity 必须是**亮暗两套主题都有**的变量：它现在由环形菜单外侧
+     的圆环拖动修改、由主进程写进 logs/window-state.json 并回推渲染层
+     （旧实现只在暗色块里声明过它，亮色主题下拖动等于没改，这个坑见勘察报告 C7）。 */
+  --panel-opacity: 0.7;
+  --panel-bg: rgba(255, 255, 255, var(--panel-opacity));
+  --panel-border: rgba(0, 0, 0, 0.12);
+  /* ── 浮层菜单的毛玻璃底色（2026-10-08 用户要求强化）──────────────────
+   * ★ 为什么单独给菜单一套、不复用 --panel-bg：
+   *   实测（probe/ctxmenu-glass-probe.cjs）证明菜单的 backdrop-filter **是生效的**
+   *   —— 换底色时菜单平均色跟着大幅偏移（红↔蓝 色偏 128）。既然玻璃在糊，
+   *   那「看不出玻璃」的原因就只剩一个：**底色 rgba 的 alpha 太高，把混进来的
+   *   背景压没了**。原来写死 rgba(21,21,23,0.72)，只剩 28% 的背景能透出来。
+   *
+   *   所以处方是把 alpha 砍到 0.42 —— 菜单比面板更「薄」，因为它浮在面板之上，
+   *   底下已有面板那层磨砂，再叠一层厚底就纯属浪费且闷。
+   *   ★ 不只调透明度：同时加 `--menu-blur` 更强的模糊（40px），
+   *     让「薄」不至于变成「糊不清」——薄 + 强模糊才是玻璃的观感，
+   *     薄 + 弱模糊 = 脏。 */
+  --menu-opacity: 0.42;
+  --menu-bg: rgba(255, 255, 255, var(--menu-opacity));
+  --menu-border: rgba(0, 0, 0, 0.1);
+  --menu-blur: blur(40px) saturate(1.6);
+  /* 亮主题的可读性 scrim：**浅色**压顶 —— 亮主题菜单是白玻璃、黑字，
+   * 危险的是「深色背景图把菜单拉暗 ⇒ 黑字看不清」，所以要用浅色往上抬。 */
+  --menu-scrim: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.34) 100%
+  );
+}
+
+body[data-ds-dark-theme] {
+  color-scheme: dark;
+  --black: rgb(249, 250, 251);
+  --white: rgb(21, 21, 23);
+  --input-bg: rgb(35, 35, 36);
+  --border: rgba(255, 255, 255, 0.16);
+  --pin: rgb(151, 157, 166);
+  --error: rgb(242, 90, 90);
+  --accent: #6ea8fe;
+  --ball-shadow: 0 3px 8px rgba(0, 0, 0, 0.48);
+  --panel-shadow: 0 4px 8px rgba(0, 0, 0, 0.45);
+  --panel-opacity: 0.7;
+  --panel-bg: rgba(21, 21, 23, var(--panel-opacity));
+  --panel-border: rgba(255, 255, 255, 0.15);
+  /* 暗色下菜单底色可以比亮色更厚一点，但要比旧版薄得多 ——
+     0.72 实测就是「一块实心板」（用户截图），0.45 才有玻璃感。 */
+  --menu-opacity: 0.45;
+  --menu-bg: rgba(21, 21, 23, var(--menu-opacity));
+  --menu-border: rgba(255, 255, 255, 0.16);
+  --menu-blur: blur(40px) saturate(1.6);
+  /* 暗主题的可读性 scrim：**深色**压顶。
+   * 实测（probe/ctxmenu-glass-probe.cjs，最坏情况 = 纯亮琥珀底 rgb(230,180,40)）：
+   *   0.10→0.28 时对比 2.68:1（<3:1，不够）
+   *   0.18→0.46 时约 3.4:1（≥3:1，小字可读）
+   * 取 0.18→0.46 这一档。两层都半透明 ⇒ 玻璃感不丢，只是整体暗了一档。 */
+  --menu-scrim: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.18) 0%,
+    rgba(0, 0, 0, 0.46) 100%
+  );
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Transcript prose selects and copies like the main window; the interactive
+ * chrome inside (buttons, tool toggles) stays selection-free. */
+#transcript {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+  /* 对话文字在装饰 GIF 之上（z-index: 2 > #deco 的 1），
+     确保左下角的 GIF 不会盖住最后一行文字。 */
+  position: relative;
+  z-index: 2;
+}
+
+#transcript button {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#panel {
+  position: absolute;
+  inset: var(--chrome);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 20px 20px calc(var(--composer-height) + var(--deco-lane-height) + 10px);
+  color: var(--black);
+  /* 毛玻璃：半透明背景 + 背景模糊，糊住窗口后面的桌面内容 */
+  background: var(--panel-bg);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border-radius: var(--panel-radius);
+  opacity: 0;
+  transform-origin: var(--origin-x) var(--origin-y);
+  transform: scale(0.18);
+  pointer-events: none;
+  transition: opacity 300ms ease-in-out, transform 300ms ease-in-out;
+}
+
+body.expand-left {
+  --origin-x: 100%;
+}
+
+body.expand-right {
+  --origin-x: 0%;
+}
+
+body.expand-up {
+  --origin-y: 100%;
+}
+
+body.expand-down {
+  --origin-y: 0%;
+}
+
+body.expanded #panel {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  border: 1px solid var(--panel-border);
+  /* 外阴影 + 顶部内发光（玻璃边缘高光） */
+  box-shadow:
+    var(--panel-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+body.expand-down #panel {
+  padding-top: calc(var(--composer-height) + var(--deco-lane-height) + 10px);
+  padding-bottom: 20px;
+}
+
+body.has-selection-chip.expand-up #panel {
+  padding-bottom: calc(var(--composer-height) + var(--deco-lane-height) + var(--selection-chip) + 10px);
+}
+
+body.has-selection-chip.expand-down #panel {
+  padding-top: calc(var(--composer-height) + var(--deco-lane-height) + var(--selection-chip) + 10px);
+}
+
+#panel::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--composer-height);
+  border-radius: calc(var(--ball) / 2);
+  background: var(--input-bg);
+}
+
+body.expand-up #panel::after {
+  bottom: 0;
+}
+
+body.expand-down #panel::after {
+  top: 0;
+}
+
+body.pinned #panel {
+  border-color: var(--pin);
+  box-shadow: 0 0 0 3px var(--pin);
+}
+
+#history,
+#new-conversation,
+#permission {
+  position: absolute;
+  top: 18px;
+  z-index: 3;
+}
+
+body.expand-down #history,
+body.expand-down #new-conversation,
+body.expand-down #permission {
+  top: auto;
+  bottom: 18px;
+}
+
+#history,
+#new-conversation {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: var(--black);
+  background: var(--input-bg);
+  cursor: pointer;
+}
+
+#history {
+  left: 12px;
+}
+
+#new-conversation {
+  right: 12px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+#permission {
+  /* orb 中权限设置已失效，隐藏 UI（DOM 保留避免 JS 报错） */
+  display: none;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+#permission-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 148px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 10px;
+  color: var(--black);
+  background: var(--input-bg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#permission-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#permission-button svg {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+
+#permission-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  margin: 0;
+  border-radius: 10px;
+  padding: 4px;
+  list-style: none;
+  background: var(--white);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+
+body.expand-down #permission-menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+#permission-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--black);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+}
+
+#permission-menu button[aria-selected="true"] {
+  background: var(--input-bg);
+}
+
+#history svg {
+  width: 16px;
+  height: 16px;
+}
+
+#transcript,
+#history-list,
+#impression,
+#api-config,
+#theme,
+#lock-gate,
+#question {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 52px;
+}
+
+body.expand-down #transcript,
+body.expand-down #history-list,
+body.expand-down #question {
+  padding-top: 0;
+  padding-bottom: 52px;
+}
+
+#question {
+  flex: 0 0 auto;
+  max-height: 55%;
+}
+
+#transcript iframe {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--white);
+}
+
+#transcript[hidden],
+#history-list[hidden],
+#impression[hidden],
+#api-config[hidden],
+#theme[hidden],
+#lock-gate[hidden],
+#question[hidden] {
+  display: none;
+}
+
+/* The chrome buttons park on the side away from the composer; keep the
+ * transcript clear of that band so rows never slide under them. */
+body.expand-down #transcript {
+  padding-bottom: 36px;
+}
+
+body.expand-up #transcript {
+  padding-top: 36px;
+}
+
+/* ── 记忆中心（P0-7「我们的回忆」）─────────────────────────────────────
+ * 定位原则：这是**读**内容的视图，不是操作台。
+ * 正文占主位、字号偏大、行距放松；控制项（按钮/频率）压在底部一行，
+ * 历史版本默认折起来。设计依据 `记忆中心_落地方案.md` §〇。 */
+#impression {
+  padding: 36px 16px 16px;
+  gap: 10px;
+}
+
+.impression-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#impression-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #ffffff 0%, rgba(255,255,255,0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+#impression-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pin);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#impression-close:hover {
+  background: color-mix(in srgb, var(--pin) 16%, transparent);
+}
+
+.impression-meta {
+  margin: 0;
+  color: var(--pin);
+  font-size: 12px;
+}
+
+/* 警告行（比如「这一版她自己也还没看到」）。
+ * 只说人话，不暴露 'missing-frontmatter' 这类内部码。 */
+.impression-warn {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+  color: var(--pin);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 正文：tabindex=0 让它能滚动/选中，但**不自动 focus** ——
+ * 面板一开就抢焦点会把用户从输入框里拽走。 */
+.impression-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 12px rgba(0, 0, 0, 0.15);
+  font-size: 13.5px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  color: rgba(255, 255, 255, 0.88);
+  word-break: break-word;
+  /* ★ 不渲染 Markdown 是故意的：正文是模型写的不可信内容，
+   * 用 innerHTML 就是给特权页开 XSS 口子。见 impression-panel.js 头部。 */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.impression-empty {
+  margin: 0;
+  padding: 16px 4px;
+  color: var(--pin);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.impression-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* 「现在重新总结一次」占满剩余宽度；频率按钮按内容宽（见下方 #impression-schedule）。 */
+#impression-refresh {
+  flex: 1 1 auto;
+  min-height: 30px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+#impression-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ★ 频率选择：自绘按钮（不是原生 <select>）。
+   原生下拉的弹出列表是 **OS 绘制的非客户区**，不吃页面背景 ——
+   写 `color: inherit` 时它继承暗色主题的浅色字，落在 OS 的白底上
+   就是「一片空白，只有鼠标 hover 才看得见」（2026-10-07 用户截图）。
+   给 `option` 写死配色只能缓解，在 frame:false + transparent:true 的
+   窗口里仍不可靠 —— 已改用自绘按钮 + 右键菜单那套（见 floating.html）。
+   下面这两条 `option` 规则留着：万一将来又用回原生 select，它至少是对的。 */
+#impression-schedule {
+  flex: 0 0 auto;/* 按内容宽，不要跟着 refresh 按钮一起撑满 */
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--black);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#impression-schedule:hover {
+  background: color-mix(in srgb, var(--pin) 14%, var(--input-bg));
+}
+
+#impression-schedule:focus-visible {
+  outline: 2px solid var(--pin);
+  outline-offset: 1px;
+}
+
+#impression-schedule option {
+  background: var(--input-bg);
+  color: var(--black);
+}
+
+#impression-history {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+#impression-history summary {
+  color: var(--pin);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.impression-commit {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.impression-commit:hover {
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+}
+
+.impression-commit-date {
+  flex: 0 0 auto;
+  color: var(--pin);
+  font-variant-numeric: tabular-nums;
+}
+
+/* commit subject 是 git 消息，同样当不可信内容：限宽 + 省略号，不让它撑破布局 */
+.impression-commit-subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.impression-at {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pin) 8%, transparent);
+}
+
+.impression-at .impression-body {
+  min-height: 90px;
+  margin: 6px 0;
+  background: transparent;
+}
+
+#impression-at-back {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.history-row {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--black);
+  background: var(--white);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.history-row.current {
+  border-color: var(--black);
+  background: var(--input-bg);
+}
+
+.history-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--pin);
+}
+
+/* ---------------------------------------------------------------------------
+ * 对话隐私锁（对话加密_落地方案.md）
+ *
+ * 三层视觉：
+ *   1. `.history-row.locked` —— 历史列表里的**占位行**（小锁 + 「已锁定的对话」）。
+ *      ⚠️ 这一行**不渲染标题**。host 侧 maskHistory() 推过来的 title 是空串，
+ *         球侧也不得拿 dataset 里残留的旧标题兜底 —— 历史标题是首条用户消息
+ *         截出来的，露出来等于把内容漏给站在旁边的人，与「全部历史进锁定态」矛盾。
+ *   2. `#lock-gate .lock-card` —— 解锁卡（暗号输入 / 密码输入）。
+ *   3. `#lock-export` —— 强锁的逃生通道（方案 §7）。
+ *
+ * z-index 不设 —— 它走的是**文档流**（与 #history-list 同级的 flex 子项），
+ * 不参与浮层竞争。项目里 9 = 右键菜单（永远最高）、6 = 缩放手柄、
+ * 5 = 记忆中心、4 = 历史列表；这里刻意不挤进那一梯队。
+ */
+
+/* 锁定占位行：比普通行更沉，暗示「点开要先过一道门」 */
+.history-row.locked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--pin);
+  background: var(--input-bg, var(--white));
+  border-style: dashed;
+  font-style: normal;
+}
+
+/* 小锁图标（内联 SVG，由 shell.js 注入 currentColor 描边） */
+.history-row.locked .lock-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  opacity: 0.8;
+}
+
+.history-row.locked .lock-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.history-row.locked .lock-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 挂强锁的对话：再多一点存在感（软锁遮罩是全局的，强锁是单条会话的） */
+.history-row.locked[data-lock-kind='strong'] {
+  border-style: solid;
+  border-color: var(--border);
+}
+
+/* ---------------------------------------------------------------------------
+ * 解锁卡
+ */
+
+#lock-gate {
+  justify-content: flex-start;
+}
+
+.lock-card {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 16px 14px;
+  background: var(--white);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lock-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lock-heading {
+  min-width: 0;
+}
+
+#lock-eyebrow {
+  margin: 0 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pin);
+}
+
+#lock-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--black);
+}
+
+#lock-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pin);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#lock-close:hover {
+  background: var(--input-bg, rgba(0, 0, 0, 0.05));
+  color: var(--black);
+}
+
+#lock-detail {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--pin);
+}
+
+.lock-field {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+#lock-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 12px;
+  background: var(--input-bg, var(--white));
+  color: var(--black);
+  font: inherit;
+  font-size: 13px;
+}
+
+#lock-input:focus {
+  outline: none;
+  border-color: var(--black);
+}
+
+#lock-submit {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 9px 14px;
+  background: var(--input-bg, var(--white));
+  color: var(--black);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#lock-submit:hover {
+  border-color: var(--black);
+}
+
+#lock-feedback {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--black);
+}
+
+/* 失败反馈用中性偏警示色，但**不用 --error 那种红**：
+ * 输错暗号是流程的一部分（5 轮里的一轮），不该像闯祸。 */
+#lock-feedback[data-ok='false'] {
+  color: var(--pin);
+}
+
+#lock-feedback[data-ok='true'] {
+  color: var(--black);
+}
+
+.lock-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--pin);
+  opacity: 0.85;
+}
+
+/* 哨兵：没有暗号可对时，输入区整个禁掉，别让人对着一个永远打不开的框输字 */
+.lock-card[data-armed='false'] .lock-field {
+  opacity: 0.5;
+}
+
+.lock-card[data-armed='false'] #lock-input,
+.lock-card[data-armed='false'] #lock-submit {
+  cursor: not-allowed;
+}
+
+#lock-export {
+  align-self: flex-start;
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--pin);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#lock-export:hover {
+  border-color: var(--black);
+  color: var(--black);
+}
+
+/* 面板收起时，锁卡跟着一起消失（它是 #panel 的子元素，本来就会隐藏；
+ * 这里再兜一层，防止 body 类切换的中间帧露出卡片一角）。 */
+body:not(.expanded) #lock-gate {
+  display: none;
+}
+
+/* 历史面板打开时把锁卡让出去 —— 同一时刻只开一个抽屉 */
+body.history-open #lock-gate {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 「正在思考…」状态胶囊（用户 2026-10-07 本人提出）
+ *
+ * 改造前：状态文字是 #panel 的常规流子元素，排在流末尾，天生落在输入栏正上方
+ *         —— 也就是「在对话栏里面」。
+ * 改造后：#status 与球平级（见 floating.html），运行中落在球的**外侧**：
+ *         球贴窗口底（面板在球上方）→ 落在球顶之上；球贴窗口顶 → 落在球底之下。
+ *
+ * ⚠️ 落点在球**外**，不压球。第一版照着用户的标注框做成了「压在球头顶 14px」，
+ *    但那框是他为了好拖而画大的（本人事后确认「框截歪了」）。球是装饰角色的落点
+ *    （deco-plan/CONFIG.md），胶囊压上去等于把角色挡掉一条 —— 一律让开。
+ *
+ * 三条硬约束：
+ *   1. 球的视觉不许动 —— 球与面板的边距、球本身一像素没改；
+ *   2. 窗口几何不用动 —— 胶囊随展开方向翻转，两个方向都落在窗口内；
+ *   3. 不遮正文 —— 运行中给面板让出一条车道（见下面的 --status-lane）。
+ *
+ * 只在 body.running 且文案非空时生效，所以「正在启动 Letta…」「超长报错」这类非运行态
+ * 提示仍然留在面板里（= 改造前的行为），未运行时的落点是刻意还原出来的。
+ * ------------------------------------------------------------------------- */
+#status {
+  /* 隐藏状态文字：thinking 状态由 GIF 动画表达，
+     终端/HTTP 状态在 reasoning-lane 的 tool 节点里已有显示。 */
+  display: none;
+}
+
+/* 思考过程/工具调用区域：deco-lane 左侧，可滚动，不影响右侧 GIF */
+#reasoning-lane {
+  position: absolute;
+  left: 16px;
+  top: 4px;
+  bottom: 4px;
+  width: calc(100% - var(--deco-size) - 32px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 2;
+  /* 父元素 deco-lane 是 pointer-events:none，这里需要显式恢复才能接收滚轮 */
+  pointer-events: auto;
+  /* 滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.2) transparent;
+}
+#reasoning-lane::-webkit-scrollbar {
+  width: 4px;
+}
+#reasoning-lane::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+}
+#reasoning-lane::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* reasoning-lane 里的思考/工具节点：紧凑样式 */
+#reasoning-lane .block {
+  margin: 2px 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* 收起态隐藏（deco-lane 跟着面板一起消失，这里再兜一层） */
+body:not(.expanded) #status {
+  opacity: 0;
+}
+
+/* 运行中且文案非空：半透明胶囊，在 deco-lane 左侧。
+   高 14px，去掉 1px 描边后行盒 12px，11px 字正好不裁。 */
+body.running #status:not(:empty) {
+  width: fit-content;
+  min-width: 80px;
+  max-width: calc(100% - var(--deco-size) - 32px);
+  height: 14px;
+  padding: 0 10px;
+  font-size: 11px;
+  line-height: 12px;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: rgb(249, 250, 251);
+  background: rgba(12, 12, 14, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 历史面板/记忆中心打开时，隐藏底层的输入框和装饰区域，
+   避免它们从抽屉面板上方露出来。 */
+body.history-open #composer,
+body.history-open #deco-lane,
+body.impression-open #composer,
+body.impression-open #deco-lane,
+body.api-config-open #composer,
+body.api-config-open #deco-lane,
+body.theme-open #composer,
+body.theme-open #deco-lane,
+/* 「看过的视频」（2026-10-21 新增的第五个抽屉）：同样要让掉输入栏 ——
+   否则抽屉打开时底部那条空输入框会从它下面露出来（用户 2026-10-22 报「多余」）。 */
+body.bili-history-open #composer,
+body.bili-history-open #deco-lane,
+body.bili-history-open #attach-strip,
+body.bili-history-open #prompt {
+  display: none;
+}
+
+#composer {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  left: 16px;
+  right: 16px;
+  height: var(--composer-height);
+  padding: 0 12px;
+}
+
+/* ── 情绪装饰区域（deco-lane）────────────────────────────────────────
+ *
+ * 面板底部专门留给 GIF 的区域，与对话文字渲染层彻底独立：
+ *   · 对话文字滚动区域由面板 padding 挡住，不会延伸到这里
+ *   · GIF 是这个区域的一部分，不是浮在文字上面
+ *   · 渐变背景让 GIF 区域和面板主体柔和过渡，看起来是面板的一部分
+ *
+ * expand-up：在输入框上方；expand-down：在输入框下方。
+ */
+#deco-lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--deco-lane-height);
+  z-index: 1;
+  pointer-events: none;
+  /* 渐变背景：从透明（上）到面板底色（下），让 GIF 区域有存在感 */
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    var(--panel-bg) 100%
+  );
+}
+
+body.expand-up #deco-lane {
+  bottom: var(--composer-height);
+}
+
+body.expand-down #deco-lane {
+  top: var(--composer-height);
+  background: linear-gradient(
+    to top,
+    transparent 0%,
+    var(--panel-bg) 100%
+  );
+}
+
+/* ── 情绪装饰 GIF（P1-5）─────────────────────────────────────────────
+ *
+ * 放在 #deco-lane 里面，右下角对齐。
+ * 图层：z-index 1（在 deco-lane 内），对话文字 z-index 2（在上面）。
+ * 整层透明度 65%。
+ */
+#deco {
+  position: absolute;
+  right: 10px;
+  bottom: 4px;
+  width: var(--deco-size);
+  height: var(--deco-size);
+  object-fit: contain;
+  /* GIF 在独立区域，不遮挡文字，不需要透明度 */
+  opacity: 1;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 200ms ease;
+}
+
+/* 收起态随面板一起消失（#panel opacity:0）。这里再兜一层，
+   防止将来有人给 #deco 加了 transform/filter 之类创建独立层叠上下文。 */
+body:not(.expanded) #deco {
+  opacity: 0;
+}
+
+body.expand-up #composer {
+  bottom: 0;
+}
+
+body.expand-down #composer {
+  top: 0;
+}
+
+body.running #composer,
+body.asking #composer,
+body.tcc-gating #composer,
+body.running #selection-chip,
+body.asking #selection-chip,
+body.tcc-gating #selection-chip {
+  visibility: hidden;
+}
+
+#selection-chip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  height: var(--selection-chip);
+  width: calc(100% - var(--ball) - 28px);
+  padding: 0 12px;
+  color: var(--pin);
+  background: var(--input-bg);
+  border-radius: 999px;
+}
+
+#selection-chip[hidden] {
+  display: none;
+}
+
+body.expand-left #selection-chip {
+  left: 16px;
+}
+
+body.expand-right #selection-chip {
+  right: 16px;
+}
+
+body.expand-up #selection-chip {
+  bottom: var(--composer-height);
+}
+
+body.expand-down #selection-chip {
+  top: var(--composer-height);
+}
+
+#selection-chip-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+#selection-chip-dismiss {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: var(--pin);
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.question-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.question-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.question-heading-text {
+  flex: 1;
+  min-width: 0;
+}
+
+#question-eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--pin);
+}
+
+#question-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+#question-detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--pin);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+#question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--black);
+  background: var(--white);
+  cursor: pointer;
+}
+
+.question-option.selected {
+  border-color: var(--black);
+  background: var(--input-bg);
+}
+
+.question-option-mark {
+  flex: none;
+  width: 16px;
+  font-size: 12px;
+  color: var(--pin);
+}
+
+.question-option-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.question-option-label {
+  overflow-wrap: anywhere;
+}
+
+.question-option-description {
+  width: 100%;
+  font-size: 12px;
+  color: var(--pin);
+  overflow-wrap: anywhere;
+}
+
+.question-recommended {
+  font-size: 11px;
+  color: var(--pin);
+}
+
+#question-custom {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--black);
+  background: var(--white);
+  resize: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#question-custom:focus {
+  outline: none;
+  border-color: var(--black);
+}
+
+#question-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--error);
+}
+
+.question-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.question-pager,
+.question-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#question-progress {
+  font-size: 12px;
+  color: var(--pin);
+}
+
+#question-cancel,
+#question-prev,
+#question-next-nav,
+#question-skip,
+#question-continue {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--black);
+  background: var(--white);
+  cursor: pointer;
+}
+
+#question-continue {
+  border-color: var(--black);
+  color: var(--white);
+  background: var(--black);
+}
+
+#question-cancel:disabled,
+#question-prev:disabled,
+#question-next-nav:disabled,
+#question-skip:disabled,
+#question-continue:disabled {
+  cursor: default;
+}
+
+#question-continue:disabled {
+  border-color: var(--border);
+  color: var(--pin);
+  background: var(--input-bg);
+}
+
+#input-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+#prompt {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 0;
+  padding: var(--prompt-pad) 40px var(--prompt-pad) 8px;
+  color: var(--black);
+  background: transparent;
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: var(--prompt-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 发送按钮：输入框右侧，圆形，hover 变色 */
+#send-button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: var(--white);
+  background: var(--black);
+  cursor: pointer;
+  opacity: 0.35;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+#send-button:hover {
+  opacity: 1;
+}
+#send-button:active {
+  transform: translateY(-50%) scale(0.92);
+}
+/* 输入框有内容时按钮高亮 */
+#composer.has-text #send-button {
+  opacity: 1;
+  background: var(--accent);
+}
+
+#prompt::before {
+  content: "";
+  width: var(--ball);
+  height: var(--composer-height);
+  margin-top: calc(0px - var(--prompt-pad));
+  shape-margin: 8px;
+}
+
+body.expand-left #prompt::before {
+  float: right;
+}
+
+body.expand-right #prompt::before {
+  float: left;
+}
+
+body.expand-up #prompt::before {
+  shape-outside: circle(36px at 50% calc(100% - 36px));
+}
+
+body.expand-down #prompt::before {
+  shape-outside: circle(36px at 50% 36px);
+}
+
+body.composer-capped.expand-left #prompt {
+  padding-right: var(--ball);
+}
+
+body.composer-capped.expand-right #prompt {
+  padding-left: var(--ball);
+}
+
+body.composer-capped #prompt::before {
+  content: none;
+  width: 0;
+  height: 0;
+  float: none;
+}
+
+#prompt.prompt-empty::after {
+  content: attr(data-placeholder);
+  color: var(--pin);
+  line-height: calc(var(--ball) - 2 * var(--prompt-pad));
+}
+
+#ball {
+  position: absolute;
+  z-index: 1;
+  top: var(--chrome);
+  left: var(--chrome);
+  width: var(--ball);
+  height: var(--ball);
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--black);
+  box-shadow: var(--ball-shadow);
+  cursor: grab;
+}
+
+body.expand-left #ball {
+  left: auto;
+  right: var(--chrome);
+}
+
+body.expand-right #ball {
+  right: auto;
+  left: var(--chrome);
+}
+
+body.expand-up #ball {
+  top: auto;
+  bottom: var(--chrome);
+}
+
+body.expand-down #ball {
+  bottom: auto;
+  top: var(--chrome);
+}
+
+body.expanded #ball {
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+body.pinned #ball {
+  box-shadow: 0 0 0 3px var(--pin);
+}
+
+#ball:active {
+  cursor: grabbing;
+}
+
+#dock-tab {
+  position: absolute;
+  top: 8px;
+  display: none;
+  width: 6px;
+  height: 72px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: #75757F;
+  box-shadow:
+    0 0 0 6px rgb(117 117 127 / 7%),
+    0 0 0 4px rgb(117 117 127 / 12.5%),
+    0 0 0 2px rgb(117 117 127 / 19.6%);
+  cursor: pointer;
+  animation: dock-tab-breath 1800ms ease-in-out infinite alternate;
+}
+
+@keyframes dock-tab-breath {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #dock-tab {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+body.docked-left #dock-tab {
+  left: 0;
+}
+
+body.docked-right #dock-tab {
+  right: 0;
+}
+
+body.docked #dock-tab {
+  display: block;
+}
+
+body.docked #ball,
+body.docked #panel,
+body.docked #stop {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#ball-gif {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+#stop {
+  /* Opposite 72px cap of the input pill from #ball; 14px is (72-44)/2. */
+  position: absolute;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--pin);
+  border-radius: 50%;
+  padding: 0;
+  background: var(--white);
+  cursor: pointer;
+}
+
+#stop::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--black);
+}
+
+body.expand-left #stop {
+  left: calc(var(--chrome) + 14px);
+}
+
+body.expand-right #stop {
+  right: calc(var(--chrome) + 14px);
+}
+
+body.expand-up #stop {
+  bottom: calc(var(--chrome) + 14px);
+}
+
+body.expand-down #stop {
+  top: calc(var(--chrome) + 14px);
+}
+
+body:not(.expanded) #stop,
+body:not(.running) #stop {
+  display: none;
+}
+
+#tcc-gate {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 36px 20px 20px;
+  color: var(--black);
+  background: var(--white);
+  border-radius: var(--panel-radius);
+}
+
+#tcc-gate[hidden] {
+  display: none;
+}
+
+#tcc-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  color: var(--pin);
+  background: var(--input-bg);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#tcc-title {
+  margin: 0 28px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+#tcc-app,
+#tcc-footer {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--pin);
+}
+
+.tcc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.tcc-row h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tcc-row p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--pin);
+}
+
+.tcc-row button,
+.tcc-actions button {
+  align-self: flex-start;
+  border: 1px solid var(--black);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--white);
+  background: var(--black);
+  cursor: pointer;
+}
+
+#tcc-later {
+  border-color: var(--border);
+  color: var(--black);
+  background: var(--white);
+}
+
+.tcc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * 图片附件（粘贴 / 拖拽入窗）
+ *
+ * 实现参照 WorkBuddy 对话框发图（见 `参考-WorkBuddy图片实现.md`）。
+ *
+ * ★ 布局为什么这样放：`#composer` 是**固定高度**（`--composer-height`）且
+ *   `position:absolute`，`#deco-lane` 紧贴它。缩略图条不能撑高 composer，
+ *   否则会盖住 deco-lane 与面板 padding（本项目在 deco-lane 上踩过同类坑）。
+ *   所以条子**绝对定位浮在输入框上方**，不参与 composer 的高度计算。
+ *
+ * ★ z-index 用 3（普通控件档）。本项目层级约定：1 装饰 / 2 输入框 /
+ *   3 普通控件 / 4 历史 / 5 记忆中心 / 6 手柄 / 7 读数 / 9 菜单。
+ *   缩略图是「输入框的附属控件」，取 3 —— **不要**动成 2，那会跟输入框打架。
+ * ══════════════════════════════════════════════════════════════════ */
+
+#attach-strip {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px 2px;
+  list-style: none;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* 滚动条别把 56px 的条子挤出格 */
+  scrollbar-width: thin;
+}
+
+/* 贴输入框的两条边方向不同，条子得往对应侧躲 */
+body.expand-up #attach-strip {
+  bottom: 100%;
+  margin-bottom: 4px;
+}
+
+body.expand-down #attach-strip {
+  top: 100%;
+  margin-top: 4px;
+}
+
+.attach-item {
+  position: relative;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--black) 18%, transparent);
+}
+
+.attach-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+/* 压缩中：压一层半透明 + 转圈，让「还在处理」可见 */
+.attach-item[data-busy="1"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--panel-bg) 62%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+/* 压缩没达标（>512KB）：角标提示，用户可自行决定删不删 */
+.attach-item[data-heavy="1"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--pin);
+}
+
+.attach-remove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  color: #fff;
+  background: color-mix(in srgb, #000 62%, transparent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.attach-item:hover .attach-remove,
+.attach-remove:focus-visible {
+  opacity: 1;
+}
+
+.attach-remove:hover {
+  background: var(--error);
+}
+
+/* ── 拖拽入窗提示 ──
+ * 只在真拖文件时出现。pointer-events:none 是硬要求 —— 它铺在 composer 上，
+ * 吃了事件就变成「看着能拖、实际拖不进去」。
+ */
+#drop-hint {
+  position: absolute;
+  z-index: 3;
+  inset: -6px -8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--panel-bg) 88%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+#drop-hint[hidden] {
+  display: none;
+}
+
+/* ── API 配置（待办 P2-1「独立的 API 配置界面」）────────────────────────
+ * 与记忆中心（#impression）同一形态与语言：占满内容区的抽屉、左对齐表单、
+ * 底部一行操作。定位原则不同：这一页是**操作台**，所以字段成列、行距收紧、
+ * 主操作（保存）用强调色，危险感为 0（写盘前主进程会先备份原文件）。 */
+#api-config {
+  padding: 36px 16px 16px;
+  gap: 10px;
+}
+
+.api-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#api-config-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+#api-config-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pin);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#api-config-close:hover {
+  background: color-mix(in srgb, var(--pin) 16%, transparent);
+}
+
+.api-config-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.api-config-note[hidden] {
+  display: none;
+}
+
+.api-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--pin) 78%, transparent);
+}
+
+.api-field > input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.api-field > input:read-only {
+  opacity: 0.62;
+}
+
+.api-field > input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* 思考开关（<select>）：外观与旁边的 input 对齐；原生下拉箭头在深色面板上太抢眼，去掉它。 */
+.api-field > select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0;
+  appearance: none;
+}
+
+.api-field > select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.api-field > select > option {
+  background: #202024;
+  color: #f5f5f7;
+}
+
+.api-key-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.api-key-row > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.api-key-row > input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#api-key-reveal {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#api-key-reveal:hover {
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+}
+
+.api-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--pin) 68%, transparent);
+}
+
+.api-paths > p {
+  margin: 0;
+}
+
+.api-paths > pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+  font-family: var(--ds-font-family-code, ui-monospace, monospace);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.api-config-status {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--pin);
+}
+
+.api-config-status[data-kind='error'] {
+  color: var(--error);
+}
+
+.api-config-status[data-kind='ok'] {
+  color: var(--accent);
+}
+
+.api-config-status[hidden] {
+  display: none;
+}
+
+.api-config-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.api-config-foot > button {
+  flex: 1 1 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.api-config-foot > button:hover {
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+}
+
+.api-config-foot > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.api-config-foot > button.is-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.api-config-foot > button.is-primary:hover {
+  background: color-mix(in srgb, var(--accent) 82%, #fff);
+}
+
+/* ── 背景层（用户 m02033：三个页面各自一张背景图）────────────────────────
+ * 它画在 #panel 自己的毛玻璃之上、一切内容之下（floating.html 里
+ * `z-index:-1` 的理由写在注释里）。窗口被拖大拖小时这层跟着重排，
+ * 而图片按适配方式缩放 —— **图元一个像素都不拉伸**：
+ *   cover   —— 铺满 + 裁切（默认，窗口比例变了只是换裁切区域）
+ *   contain —— 完整可见 + 留边
+ *   auto    —— 原始像素，窗口越大露出越多、永不缩放
+ * 蒙层压在图与文字之间：浅色主题叠白、深色叠黑，浓度由每槽的 scrim 决定
+ * （JS 写 inline opacity；没设背景的视图浓度恒为 0，不会把空面板染灰）。 */
+#bg-stack {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bg-layer {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  opacity: 0;
+  transition: opacity 320ms ease-in-out;
+}
+
+#panel[data-view='chat'] .bg-layer[data-slot='chat'],
+#panel[data-view='history'] .bg-layer[data-slot='history'],
+#panel[data-view='recall'] .bg-layer[data-slot='recall'] {
+  opacity: 1;
+}
+
+#bg-scrim {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  opacity: 0;
+  transition: opacity 320ms ease-in-out;
+}
+
+body[data-ds-dark-theme] #bg-scrim {
+  background: #0f0f11;
+}
+
+/* ── 主题页（用户 m02033：黑白切换 + 三个页面各自导入背景）──────────────
+ * 与「API 配置」同一套视觉语言：占满内容区的抽屉、左对齐表单、底部一行操作。
+ * 与 #impression / #api-config 平级、互斥。 */
+#theme {
+  padding: 36px 16px 16px;
+  gap: 14px;
+}
+
+.theme-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#theme-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+#theme-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pin);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#theme-close:hover {
+  background: color-mix(in srgb, var(--pin) 16%, transparent);
+}
+
+.theme-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.theme-note[hidden] {
+  display: none;
+}
+
+.theme-block {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.theme-label {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--pin) 78%, transparent);
+}
+
+.theme-hint {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--pin) 72%, transparent);
+}
+
+.theme-modes,
+.theme-slot-actions,
+.theme-slot-fit,
+.theme-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-modes > button,
+.theme-slot-actions > button,
+.theme-slot-fit > button,
+.theme-foot > button {
+  flex: 1 1 0;
+  padding: 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.theme-modes > button:hover,
+.theme-slot-actions > button:hover,
+.theme-slot-fit > button:hover,
+.theme-foot > button:hover {
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+}
+
+.theme-modes > button[aria-checked='true'],
+.theme-slot-fit > button[aria-checked='true'] {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.theme-slot-actions > button:disabled,
+.theme-slot-fit > button:disabled,
+.theme-modes > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.theme-bg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.theme-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+}
+
+.theme-slot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.theme-slot-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.theme-slot-file {
+  max-width: 58%;
+  overflow: hidden;
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--pin) 80%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-slot-preview {
+  height: 62px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background-color: rgba(127, 127, 127, 0.14);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.theme-slot-preview.has-image {
+  border-style: solid;
+}
+
+.theme-slot-scrim {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--pin) 78%, transparent);
+}
+
+.theme-slot-fit-label,
+.theme-slot-scrim-label {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--pin) 72%, transparent);
+}
+
+.theme-slot-scrim > input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+
+
+/* ── 背景图必须自己糊掉（2026-10-22 用户报「排版乱」查出来的）────────────
+ *
+ * ★ 母本在 `#panel` 上写了 `backdrop-filter: blur(30px)`，但**它从来没模糊过背景图** ——
+ *   backdrop-filter 作用的是「该元素背后已经绘制的东西」，而 `#bg-stack`
+ *   是 `#panel` 的子元素、z-index:-1，画在 panel 背景**之上** ⇒ 不在它的 backdrop 里。
+ *   于是用户的「星空 + 樱花 + 萤火虫」满图原样透进来，正文直接压在高对比花纹上。
+ *   （用户当时看到的那个"直角边框"，也是这张**方形图的边缘**，不是窗口合成问题。）
+ *
+ * 做法：给 `.bg-layer` 自己的渲染结果加 `filter: blur()` ——
+ *   只作用于这张图，**不影响窗口合成**，面板圆角照旧。
+ *   `transform: scale()` 用来抵消 blur 造成的边缘透明。
+ */
+.bg-layer {
+  filter: blur(20px) saturate(1.1);
+  transform: scale(1.12);
+}
+
+/* 母本给关闭键的是 24×24 方块（与其它抽屉一致），但现在它孤零零挂在右上角，
+   方块显得很重 —— 改成圆钮 + hover 才显形。 */
+#bili-history-close {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: color-mix(in srgb, var(--input-bg) 60%, transparent);
+  color: var(--pin);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#bili-history-close:hover {
+  background: var(--input-bg);
+  color: var(--black);
+}
+
+/* ── 抽屉头：只剩一颗「×」，绝对定位到右上角，不占整行 ────────────────────── */
+.bili-history-head {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── [hidden] 复位（母本只覆盖了它自己的四个抽屉，新的这个得自己补）──
+ * ★ `[hidden]` 只在 UA 样式表里是 display:none，权重极低；
+ *   凡是我们自己写过 display:flex/grid 的元素，都得另补一条复位。
+ *   不补的后果：二级面板打开时两块列表**不让开**，被顶到页面最下面去。 */
+#bili-history .bili-block[hidden],
+#bili-history .bili-note[hidden],
+#bili-history .bili-more[hidden],
+#bili-history .bili-block-empty[hidden] {
+  display: none;
+}
+
+/* ═════════════════════ 看过的视频（2026-10-21 新版）═════════════════════
+ * 上半「我喜欢的」/ 下半「我看过的」，每块只露最近 2 条，更早的收进 <details>。
+ * 每条下面一行动作：赞 / 币 / 藏 / B站 —— 前三项是真的发 B 站接口。
+ * ★ 顺带解决用户说的「上半部分一片空白」：抽屉一开，面板底部那 104px 的
+ *   装饰道就没用了（#deco-lane 同时被 display:none），所以把这段留白收掉，
+ *   内容直接从球下面开始 —— 不必再让 186px 的 padding 白占着。
+ */
+body.bili-history-open #panel {
+  padding-top: calc(var(--ball) + 20px);
+  padding-bottom: 20px;
+}
+
+body.bili-history-open.expand-up #panel {
+  padding-top: 20px;
+  padding-bottom: calc(var(--ball) + 20px);
+}
+
+#bili-history {
+  /* ★ 定位上下文：让右上角那颗「×」相对**抽屉**而不是相对整个面板
+     （否则它会飞到球那一行的右上角去）。 */
+  position: relative;
+  gap: 8px;
+  /* 顶部大标题删掉之后，这里不再需要给标题留位置 ——
+     球的那一份由面板层的 padding-top 让（body.bili-history-open #panel）。 */
+  padding-top: 8px;
+}
+
+body.expand-down.bili-history-open #bili-history {
+  padding-top: 8px;
+  /* 底部那 52px 的位在**面板**那层让（见下面的 #panel 规则）——
+     这里再让一次就会白空一截，所以只留一点点呼吸。 */
+  padding-bottom: 6px;
+}
+
+/* ★ 展开向下时，那排常驻控件（历史 / 权限 / 新建）落在面板**下沿**（bottom:12px，高 28px）。
+ *   抽屉是「占满内容区 + 自己滚」的：只在抽屉里加 padding 不解决根本问题 ——
+ *   内容一长（两块各 2 条 + 底部按钮就是 530px > 482px）就会把「刷新 / 清空记录」
+ *   顶进那 40px 里，被权限胶囊压住半截（截图里看得一清二楚）。
+ *   所以在面板这层把这条座位让出来，抽屉的滚动视口整体上移，滚到哪儿都不会撞上。
+ *   五个抽屉共用同一条口径，别让新抽屉再踩。 */
+body.expand-down.history-open #panel,
+body.expand-down.impression-open #panel,
+body.expand-down.api-config-open #panel,
+body.expand-down.theme-open #panel,
+body.expand-down.bili-history-open #panel {
+  padding-bottom: 56px;
+}
+
+.bili-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* 两块之间：间距为主、细线为辅（线太弱反而像没做完） */
+.bili-block + .bili-block {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+}
+
+/* 板块标题用**原来那个大标题的格式**（17px / 700 / 深色）——
+   顶部大标题删掉之后，这两个标题就是页面上唯一的标题级文字。 */
+.bili-block-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--black);
+  flex: 0 0 auto;
+}
+
+.bili-block-empty {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--pin) 85%, transparent);
+}
+
+.bili-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 卡片：暗色主题下 --white（近黑）与面板底色（也是近黑）几乎同色，
+   只靠 1px 半透明描边撑着 —— 整个页面糊成一块，用户说「有点丑」。
+   这里改成「浮起来」的三件套：略亮的底 + 柔和描边 + 一点点投影。 */
+.bili-row {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 14px;
+  /* 往 --input-bg 那侧混（而不是往 --white 混）：暗色主题下 --white 是近黑、
+     面板底色也是近黑，两者只差 2 个色阶，卡片等于隐形。--input-bg 明显更亮，
+     混出来的卡片才真的"浮"在面板上。亮色主题下则是"比面板略灰"，同样有层次。 */
+  background: color-mix(in srgb, var(--input-bg) 82%, var(--white));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 10px 20px -14px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+/* 行主体是个按钮（可点），动作条是它下面的兄弟节点 ——
+   嵌套按钮是非法 HTML，会静默吞事件。 */
+.bili-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--black);
+  cursor: pointer;
+}
+
+.bili-row-main:hover {
+  background: color-mix(in srgb, var(--input-bg) 70%, transparent);
+}
+
+.bili-row-title {
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 概览：她看完之后自己写的那一句（用户 2026-10-21 深夜要的「视频概览」）。
+   位置就是原来那行「今天 20:11 · 清晰 720P · 看过 2 次」的地方。 */
+.bili-row-summary {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--pin);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bili-row-summary.is-empty {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.bili-row-hint {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--pin) 85%, transparent);
+  opacity: 0.9;
+}
+
+.bili-row-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 7px;
+}
+
+/* 「什么时候看的 · 多长」—— 用户点名要放在原来「B 站」按钮的那一格。 */
+.bili-row-when {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: var(--pin);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 动作按钮：淡底胶囊而不是描边方块 —— 四个描边框并排太吵，
+   而它们的操作频率很低，不该跟标题抢注意力。 */
+.bili-chip {
+  flex: 1 1 0;
+  max-width: 76px;
+  min-height: 22px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--input-bg) 70%, transparent);
+  color: var(--pin);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bili-chip:hover:not(:disabled) {
+  background: var(--input-bg);
+  color: var(--black);
+}
+
+.bili-chip.is-done {
+  background: color-mix(in srgb, var(--pin) 14%, transparent);
+  color: color-mix(in srgb, var(--pin) 80%, transparent);
+  cursor: default;
+}
+
+.bili-chip:disabled {
+  opacity: 0.7;
+}
+
+/* 「更早的 N 条」下拉 */
+.bili-more {
+  flex: 0 0 auto;
+}
+
+.bili-more[hidden] {
+  display: none;
+}
+
+.bili-more summary {
+  font-size: 11px;
+  color: var(--pin);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.bili-more .bili-list {
+  margin-top: 6px;
+}
+
+/* ── 二级面板：我喜欢的理由 / 想对作者说的话 ── */
+.bili-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* ★ 撑满内容区：二级面板只有「理由 + 一句话」，
+     若按内容高度排，底下会空出一大块（正是用户嫌「太空」的那种空）。
+     让它吃到剩余高度、输入框跟着长，改文案时也顺手。 */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.bili-note[hidden] {
+  display: none;
+}
+
+.bili-note-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 面板里不再放第二颗 ×：抽屉右上角已经有一颗，两颗上下并排站着一个意思，
+ * 点错了还分不清是「回列表」还是「关抽屉」。回列表走底下的「返回」。 */
+
+#bili-note-title {
+  margin: 0;
+  /* 右边给抽屉那颗绝对定位的「×」让出位置（标题是视频原名，可能很长） */
+  padding-right: 30px;
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.bili-note-label {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--pin);
+}
+
+.bili-note-reason {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--white) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#bili-note-comment {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  /* 跟着面板一起长（见上面 .bili-note 的 flex:1） */
+  flex: 1 1 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--white);
+  color: var(--black);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+#bili-note-comment:disabled {
+  background: var(--input-bg);
+  color: var(--pin);
+}
+
+.bili-note-status {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--pin);
+}
+
+.bili-note-actions {
+  display: flex;
+  gap: 6px;
+}
+
+#bili-note-send,
+#bili-note-regen,
+#bili-note-cancel {
+  flex: 1 1 auto;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+#bili-note-send {
+  background: var(--black);
+  color: var(--white);
+  border-color: var(--black);
+}
+
+#bili-note-send:disabled,
+#bili-note-regen:disabled,
+#bili-note-cancel:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* 二级面板底部两个按钮：补写概览 / 去 B 站看原片 */
+.bili-note-foot {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.bili-note-foot button {
+  flex: 1 1 0;
+  min-height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.bili-note-foot button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* 二级面板里的「概览」空态：灰一点，跟「她还没写」一个意思 */
+.bili-note-reason.is-empty {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.bili-history-foot {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-top: auto;
+  /* ★ 钉在滚动视口下沿：列表一长（两块各 2 条就是 480px+），
+     「刷新 / 清空记录」会被挤到折线以下，用户根本看不见。
+     背景用面板底色而不是 --white —— 暗色下 --white 与卡片同色，
+     会变成一条突兀的黑带；底色 + 上边框才像是"工具条"。 */
+  position: sticky;
+  bottom: 0;
+  gap: 8px;
+  padding: 8px 0 2px;
+  background: var(--panel-bg);
+  box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, 0.35);
+}
+
+#bili-history-refresh,
+#bili-history-clear {
+  flex: 1 1 auto;
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+#bili-history-refresh:disabled,
+#bili-history-clear:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

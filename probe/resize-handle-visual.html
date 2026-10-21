@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>缩放手柄视觉对比 · v1实心方块 → v2淡斜纹 → v3 窗体角 22px</title>
+<style>
+  /* ── 用产品真实的 CSS 变量与手柄几何（context-menu.css + resize-handles.js） ── */
+  :root {
+    --chrome: 12px;
+    --panel-radius: 36px;
+    --pin: #6b6b78;
+    --white: #ffffff;
+    --black: #14141a;
+  }
+  body {
+    margin: 0;
+    padding: 40px 32px 56px;
+    background: #0e0e13;
+    color: #e8e8ef;
+    font: 14px/1.6 "Microsoft YaHei", system-ui, sans-serif;
+  }
+  h1 { font-size: 19px; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: #8b8b9a; font-size: 13px; margin: 0 0 32px; }
+  .row { display: flex; gap: 32px; flex-wrap: wrap; align-items: flex-start; }
+  .cell { width: 320px; }
+  .cell h2 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+  .cell .note { color: #8b8b9a; font-size: 12px; margin: 0 0 14px; min-height: 46px; }
+  .cell .note.bad { color: #e8a0a0; }
+  .cell .note.good { color: #9fd6a8; }
+
+  /* 舞台 = 窗体（body）。产品里 body 是 background: transparent，
+     用户看到的「黑色窗体」其实是**桌面壁纸透过来的颜色** —— 这里用条纹模拟桌面。 */
+  .stage {
+    position: relative;
+    height: 260px;
+    border-radius: 10px;
+    background:
+      repeating-linear-gradient(45deg, #191922 0 10px, #14141a 10px 20px);
+    padding: var(--chrome);
+  }
+  .panel {
+    position: relative;
+    height: 100%;
+    border-radius: var(--panel-radius);
+    background: rgba(30, 30, 40, 0.86);
+    backdrop-filter: blur(30px) saturate(1.5);
+    -webkit-backdrop-filter: blur(30px) saturate(1.5);
+    border: 1px solid rgba(255,255,255,0.09);
+    overflow: hidden;
+  }
+  .fake-head { padding: 14px 18px 10px; color: #b9b9c8; font-size: 12px; }
+  .fake-msg { margin: 6px 18px; padding: 9px 12px; border-radius: 14px; font-size: 12px; }
+  .fake-msg.u { background: rgba(255,255,255,0.07); color: #cfcfda; }
+  .fake-msg.a { background: rgba(107,107,120,0.28); color: #d8d8e2; }
+  .fake-input {
+    position: absolute; left: var(--chrome); right: var(--chrome); bottom: 10px;
+    height: 34px; border-radius: 17px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  /* 球：产品 BALL_SIZE=72 / CHROME_INSET=12，球永远占窗口两相邻角之一 */
+  .ball {
+    position: absolute;
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #8fd3e8, #3f8fb0 70%, #2b6b86);
+    box-shadow: 0 4px 14px rgba(0,0,0,.45);
+    display: grid; place-items: center;
+    color: #10333f; font-size: 26px;
+  }
+  .ball.se { right: 0; bottom: 0; }
+  .ball.nw { left: 0; top: 0; }
+
+  /* ── 手柄：几何与产品一致（角命中 22px / 边条视觉 6px 命中 16px） ── */
+  .h { position: absolute; z-index: 6; background: transparent; }
+  .h::before { content: ""; position: absolute; }
+  .h[data-dir="n"] { left: var(--chrome); right: var(--chrome); top: 0; height: 6px; }
+  .h[data-dir="s"] { left: var(--chrome); right: var(--chrome); bottom: 0; height: 6px; }
+  .h[data-dir="w"] { top: var(--chrome); bottom: var(--chrome); left: 0; width: 6px; }
+  .h[data-dir="e"] { top: var(--chrome); bottom: var(--chrome); right: 0; width: 6px; }
+  .h[data-dir="n"]::before { left: 0; right: 0; top: -5px; height: 16px; }
+  .h[data-dir="s"]::before { left: 0; right: 0; bottom: -5px; height: 16px; }
+  .h[data-dir="w"]::before { top: 0; bottom: 0; left: -5px; width: 16px; }
+  .h[data-dir="e"]::before { top: 0; bottom: 0; right: -5px; width: 16px; }
+
+  /* ── v1：10px 实心方块（用户说「太难看」） ── */
+  .v1 .h[data-dir="se"] { right: 0; bottom: 0; width: 22px; height: 22px; }
+  .v1 .h[data-dir="se"]::after {
+    content: ""; position: absolute; left: 6px; top: 6px;
+    width: 10px; height: 10px; border-radius: 2px;
+    background: color-mix(in srgb, var(--pin) 70%, transparent);
+  }
+  .v1 .h[data-dir="n"]:hover { background: color-mix(in srgb, var(--pin) 22%, transparent); }
+
+  /* ── v2：14px 斜纹，压在面板圆角里面（用户说「显示不明显」） ── */
+  .v2 .h[data-dir="se"] { right: 0; bottom: 0; width: 22px; height: 22px; }
+  .v2 .h[data-dir="se"]::after {
+    content: ""; position: absolute; right: 5px; bottom: 5px;
+    width: 14px; height: 14px; opacity: .32;
+    background-repeat: no-repeat;
+    background-image: repeating-linear-gradient(to bottom left, var(--pin) 0 1.5px, transparent 1.5px 4px);
+    transition: opacity 120ms ease-out;
+  }
+  .v2 .h[data-dir="se"]:hover::after { opacity: 1; }
+  .v2 .h[data-dir="n"]:hover { background: color-mix(in srgb, var(--pin) 22%, transparent); }
+
+  /* ── v3（产品实际采用）：22px 斜纹铺满命中区、推到窗体角、opacity .62 ── */
+  .v3 .h[data-dir="se"] { right: 0; bottom: 0; width: 22px; height: 22px; }
+  .v3 .h[data-dir="nw"] { left: 0; top: 0; width: 22px; height: 22px; }
+  .v3 .h[data-dir="se"]::after,
+  .v3 .h[data-dir="nw"]::after {
+    content: ""; position: absolute;
+    width: 22px; height: 22px;
+    opacity: .62;
+    background-repeat: no-repeat;
+    transition: opacity 120ms ease-out;
+  }
+  .v3 .h[data-dir="se"]::after {
+    left: 0; top: 0;
+    background-image: repeating-linear-gradient(to bottom left, var(--pin) 0 2px, transparent 2px 5px);
+  }
+  .v3 .h[data-dir="nw"]::after {
+    right: 0; bottom: 0;
+    background-image: repeating-linear-gradient(to bottom right, var(--pin) 0 2px, transparent 2px 5px);
+  }
+  .v3 .h[data-dir="se"]:hover::after,
+  .v3 .h[data-dir="nw"]:hover::after { opacity: 1; }
+  /* hover 只显面板边缘一根 1px 细线（不铺整条色带） */
+  .v3 .h[data-dir="n"]:hover,
+  .v3 .h[data-dir="s"]:hover { box-shadow: inset 0 1px 0 var(--pin); }
+  .v3 .h[data-dir="n"]:hover { box-shadow: inset 0 1px 0 var(--pin); }
+  .v3 .h[data-dir="s"]:hover { box-shadow: inset 0 -1px 0 var(--pin); }
+  .v3 .h[data-dir="w"]:hover { box-shadow: inset 1px 0 0 var(--pin); }
+  .v3 .h[data-dir="e"]:hover { box-shadow: inset -1px 0 0 var(--pin); }
+
+  .demo-hover .h[data-dir="se"]::after { opacity: 1; }
+  .demo-hover .h[data-dir="s"] { box-shadow: inset 0 -1px 0 var(--pin); }
+  .demo-hover .h[data-dir="e"] { box-shadow: inset -1px 0 0 var(--pin); }
+
+  .legend {
+    margin-top: 30px; padding: 16px 18px;
+    border-radius: 10px; background: #16161f; border: 1px solid #26262f;
+    font-size: 12.5px; color: #a8a8b8;
+  }
+  .legend b { color: #e8e8ef; font-weight: 600; }
+  .legend code {
+    background: #22222c; padding: 1px 5px; border-radius: 4px;
+    font-family: Consolas, monospace; font-size: 11.5px; color: #c9c9d8;
+  }
+  table { border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+  td, th { border: 1px solid #2b2b36; padding: 4px 10px; text-align: left; }
+  th { color: #c9c9d8; font-weight: 600; background: #1b1b25; }
+  .bad2 { color: #e8a0a0; }
+</style>
+</head>
+<body>
+  <h1>缩放手柄视觉 · 三版对比（命中区全程没变，只改「看得见的那一层」）</h1>
+  <p class="sub">
+    条纹背景 = <code>body</code>（窗体，产品里是 <code>background: transparent</code>，用户看到的「黑色」其实是<b>桌面壁纸透过来的颜色</b>）；
+    内层圆角块 = 面板（<code>inset: var(--chrome)</code>）。斜纹落在<b>面板之外、窗体之内</b>的那圈，就是用户说的「窗体右下角」。
+  </p>
+
+  <div class="row">
+    <div class="cell">
+      <h2>v1 · 10px 实心方块</h2>
+      <p class="note bad">用户反馈：「太难看了」。方块太实、边界硬，像往面板上贴了个控件，而不是「窗口本身可以被拉开」。</p>
+      <div class="stage v1">
+        <div class="panel">
+          <div class="fake-head">鲸鱼娘</div>
+          <div class="fake-msg u">在吗？</div>
+          <div class="fake-msg a">在的～</div>
+          <div class="fake-input"></div>
+        </div>
+        <div class="h" data-dir="n"></div>
+        <div class="h" data-dir="se"></div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <h2>v2 · 14px 斜纹 · 32%</h2>
+      <p class="note bad">照抄了 <code>deco-plan/preview.html</code> 的原生 <code>resize:both</code> 风格。用户反馈：「在桌面上显示不明显」—— 太小、太淡，而且缩在面板圆角里面。</p>
+      <div class="stage v2">
+        <div class="panel">
+          <div class="fake-head">鲸鱼娘</div>
+          <div class="fake-msg u">在吗？</div>
+          <div class="fake-msg a">在的～</div>
+          <div class="fake-input"></div>
+        </div>
+        <div class="h" data-dir="n"></div>
+        <div class="h" data-dir="se"></div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <h2>v3 · 22px 斜纹 · 62%（当前实现）</h2>
+      <p class="note good">放大到与命中区同大、推到窗体角、线宽 2px / 间距 5px、透明度 62%。鼠标移到哪就是哪，不用在「看得见的」和「点得到的」之间做心算。</p>
+      <div class="stage v3">
+        <div class="panel">
+          <div class="fake-head">鲸鱼娘</div>
+          <div class="fake-msg u">在吗？</div>
+          <div class="fake-msg a">在的～</div>
+          <div class="fake-input"></div>
+        </div>
+        <div class="h" data-dir="n"></div>
+        <div class="h" data-dir="e"></div>
+        <div class="h" data-dir="s"></div>
+        <div class="h" data-dir="se"></div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <h2>v3 hover / 拖拽中</h2>
+      <p class="note good">斜纹加深到不透明（唯一的「我抓到了」反馈）；边条只沿面板边缘显一根 <b>1px 细线</b>，不铺整条色带。</p>
+      <div class="stage v3 demo-hover">
+        <div class="panel">
+          <div class="fake-head">鲸鱼娘</div>
+          <div class="fake-msg u">在吗？</div>
+          <div class="fake-msg a">在的～</div>
+          <div class="fake-input"></div>
+        </div>
+        <div class="h" data-dir="n"></div>
+        <div class="h" data-dir="e"></div>
+        <div class="h" data-dir="s"></div>
+        <div class="h" data-dir="se"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:32px">
+    <div class="cell">
+      <h2>为什么不是「无脑固定右下角」</h2>
+      <p class="note">
+        窗口比面板大 <code>2 × CHROME_INSET</code>，球永远占窗口两个相邻角之一。
+        <b class="bad2">默认球位（工作区右边缘、垂直偏下）球恰好落在窗口 <code>se</code> 角</b> ——
+        手柄放上去就是压在球上，直接复现 2026-10-07 那次「球彻底失去交互」的卡死。
+      </p>
+      <div class="stage v3">
+        <div class="panel">
+          <div class="fake-head">鲸鱼娘</div>
+          <div class="fake-msg u">在吗？</div>
+          <div class="fake-msg a">在的～</div>
+          <div class="fake-input"></div>
+        </div>
+        <div class="ball se">🐳</div>
+        <div class="h" data-dir="n"></div>
+        <div class="h" data-dir="w"></div>
+        <div class="h" data-dir="s"></div>
+        <div class="h" data-dir="nw"></div>
+      </div>
+      <p class="note" style="margin-top:12px">
+        球占了 <code>se</code> → <code>safeCorner()</code> 自动把角<b>退到对角 <code>nw</code></b>，
+        两条边（这里是 上/左）照常随方向翻。
+      </p>
+    </div>
+  </div>
+
+  <div class="legend">
+    <b>为什么不能直接用 CSS <code>resize: both</code>：</b>它只改元素的 CSS 尺寸、<b>不动 BrowserWindow</b> —— 面板撑大了但窗口没变，多出来的内容直接被裁到窗口外，用户看不到任何变化。真要跟手就得每帧一次 <code>setBounds</code>，而主进程每次都要 clamp + 重算方向，拖拽途中方向翻转会剧烈抖动。所以架构上必须「自定义手柄 + IPC」，<b>但视觉可以照抄原生</b>。<br><br>
+
+    <b>「边」和「角」走的是两套规则（v3 新增，最容易踩）：</b><br>
+    ·<b>边</b>走 <code>freeEdges()</code> —— 贴球的两条边拖了没用，必须随方向翻。<br>
+    · <b>角</b>走 <code>safeCorner()</code> —— 用户指定了偏好角（默认窗体右下角 <code>se</code>），<b>不跟着方向乱跳</b>；只有 <code>se</code> 正好被球占了才退到对角。<br>
+    用真实常量算过 7 种常见球位，<code>se</code> 在其中 <b>3 种</b>会被球压住（含默认球位）—— 完整验算见 <code>probe/corner-vs-ball-geometry.mjs</code>（23 项断言）。<br><br>
+
+    <b>同轮修的另外两个 bug：</b><br>
+    ① <code>shell.js</code> 结尾<b>连着写了两遍 <code>main()</code></b> → 装了两套 UI：两个右键菜单实例（点「重命名」时 A 关了 B 还在屏幕上盖住输入框）、两个原生 <code>Menu.popup()</code> 抢事件（输入框右键没反应）、16 条手柄。已删重复调用 + 加 <code>main._done</code> 幂等守卫。<br>
+    ② 右键菜单 <code>z-index</code> 从 <code>5</code> 提到 <code>9</code> —— 手柄是 <code>6</code> 且 DOM 在菜单之后创建，会把弹到边缘的菜单盖住、点不动，这就是「右键 ui 又消失」的根因。
+  </div>
+</body>
+</html>

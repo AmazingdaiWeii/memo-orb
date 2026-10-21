@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+  环形菜单（方案C · 独立窗口）。
+
+  结构说明：
+    #ring      —— 环菜单本体，尺寸由 ring-geometry.js 推导，通过 CSS 变量写进来。
+    #plane     —— 只负责投影。环带是靠 mask 挖空的，box-shadow 会被 mask 一起裁掉，
+                  所以投影必须挂在一个**不被裁剪**的透明圆盘上。
+    #band      —— 环带：径向渐变 + radial-gradient mask 挖出中心孔（对照参考图：
+                  深色近黑半透明宽环、中心大面积留空）。
+    #orbit     —— SVG 轨道：外侧细圆环 + 进度弧 + 圆点，就是「毛玻璃透明度拖动条」
+                  （收尾待办.md §4.1 要求它长在环菜单外围的圆环上）。
+    #items     —— 5 个菜单项按钮。坐标由 ring-geometry.js 算出后写成 --dx/--dy，
+                  只做平移、不做旋转 —— 参考图里图标全是直立的。
+    #hud       —— 拖动时出现在圆心孔里的数值提示（百分比 + 材质预览块）。
+
+  菜单项清单**不在这个文件里写死**：主进程会通过 `ring-menu:data` 把它推过来，
+  源头是球窗口 shell.js 的 `ringItems()`（与旧右键菜单同一份文案）。
+  抄两份清单必然会漂移 —— 与 `avatarPresets 清单只在 helper 侧有一份` 同一条教训。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+    <title>ring-menu</title>
+    <link rel="stylesheet" href="ring-menu.css">
+  </head>
+  <body>
+    <div id="ring" role="menu" aria-label="环形菜单">
+      <div id="plane" aria-hidden="true"></div>
+      <div id="band" aria-hidden="true"></div>
+      <svg id="orbit" aria-hidden="true" focusable="false">
+        <circle id="orbit-track"></circle>
+        <circle id="orbit-value"></circle>
+        <circle id="orbit-thumb"></circle>
+      </svg>
+      <div id="items"></div>
+      <div id="hud" aria-hidden="true" hidden>
+        <span id="hud-swatch"></span>
+        <span id="hud-value"></span>
+      </div>
+    </div>
+    <script type="module" src="ring-menu.js"></script>
+  </body>
+</html>
