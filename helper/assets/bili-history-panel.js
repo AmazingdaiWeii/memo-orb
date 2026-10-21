@@ -24,8 +24,6 @@
  */
 
 const LABELS = [
-  ['#bili-history-refresh', 'biliHistoryRefresh'],
-  ['#bili-history-clear', 'biliHistoryClear'],
   ['#bili-liked-title', 'biliLikedTitle'],
   ['#bili-watched-title', 'biliWatchedTitle'],
   ['#bili-liked-empty', 'biliLikedEmpty'],
@@ -58,9 +56,10 @@ export function createBiliHistoryPanel(options = {}) {
   const setExclusiveOpen = typeof options.setExclusiveOpen === 'function' ? options.setExclusiveOpen : () => {}
   const onToggle = typeof options.onToggle === 'function' ? options.onToggle : () => {}
   const fetchHistory = typeof options.fetchHistory === 'function' ? options.fetchHistory : async () => null
-  const clearHistory = typeof options.clearHistory === 'function' ? options.clearHistory : async () => null
   const openExternal = typeof options.openExternal === 'function' ? options.openExternal : () => {}
   const act = typeof options.act === 'function' ? options.act : async () => ({ ok: false, error: 'no-op' })
+  /** 删除单条（用户 2026-10-22：底部「刷新 / 清空记录」整条删掉，改每条自带删除）。 */
+  const removeItem = typeof options.removeItem === 'function' ? options.removeItem : async () => ({ ok: false, error: 'no-op' })
   const compose = typeof options.compose === 'function' ? options.compose : async () => ({ ok: false, error: 'no-op' })
   const summaryWrite = typeof options.summaryWrite === 'function' ? options.summaryWrite : async () => ({ ok: false, error: 'no-op' })
   const noteSave = typeof options.noteSave === 'function' ? options.noteSave : async () => ({ ok: false })
@@ -68,8 +67,9 @@ export function createBiliHistoryPanel(options = {}) {
 
   const root = document.querySelector('#bili-history')
   const closeBtn = document.querySelector('#bili-history-close')
-  const refreshBtn = document.querySelector('#bili-history-refresh')
-  const clearBtn = document.querySelector('#bili-history-clear')
+  /** 列表页的状态行：动作的成败**必须在这里可见** —— 二级面板里的 #bili-note-status
+   *  在列表页是隐藏的，早先的错误全写在那儿，点了按钮等于毫无反馈（用户 2026-10-22 报「根本不生效」）。 */
+  const listStatus = document.querySelector('#bili-history-status')
 
   const likedList = document.querySelector('#bili-liked-list')
   const likedMore = document.querySelector('#bili-liked-more')
@@ -120,9 +120,16 @@ export function createBiliHistoryPanel(options = {}) {
 
   function setStatus(text) {
     statusText = String(text || '')
-    if (!noteStatus) return
-    noteStatus.textContent = statusText
-    noteStatus.hidden = statusText === ''
+    // 两处都写：二级面板里看 #bili-note-status，列表页看 #bili-history-status。
+    // 只写前者的话，列表页点「赞 / 币 / 藏」失败时**一点动静都没有**。
+    if (noteStatus) {
+      noteStatus.textContent = statusText
+      noteStatus.hidden = statusText === ''
+    }
+    if (listStatus) {
+      listStatus.textContent = statusText
+      listStatus.hidden = statusText === '' || Boolean(noteItem)
+    }
   }
 
   /**
@@ -246,6 +253,30 @@ export function createBiliHistoryPanel(options = {}) {
     when.textContent = whenLine(it)
     acts.append(when)
 
+    // 单条删除（用户 2026-10-22）：底部「刷新 / 清空记录」整条不要了，
+    // 每条自己带一个删除 —— 页面因此腾出一整条高度，排版可以放松。
+    const del = document.createElement('button')
+    del.type = 'button'
+    del.className = 'bili-row-del'
+    del.dataset.del = keyOf(it)
+    del.title = t('biliHistoryDelete')
+    del.setAttribute('aria-label', t('biliHistoryDelete'))
+    // 静态图标，不含任何第三方字符串 —— 用 innerHTML 只为少写十几行 createElementNS。
+    del.innerHTML =
+      '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">' +
+      '<path d="M3 4.6h10M6.4 4.6V3.2h3.2v1.4M4.6 4.6l.55 8.1h5.7l.55-8.1" ' +
+      'fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>'
+    del.disabled = busy !== ''
+    del.addEventListener('click', (event) => {
+      event.stopPropagation()
+      if (busy) return
+      const ask = t('biliHistoryDeleteConfirm').replace('{title}', String(it.title || '').slice(0, 40))
+      if (!window.confirm(ask)) return
+      void doDelete(it)
+    })
+    acts.append(del)
+
     row.append(main, acts)
     return row
   }
@@ -277,14 +308,14 @@ export function createBiliHistoryPanel(options = {}) {
   function render() {
     renderBlock(liked, likedList, likedMore, likedMoreSummary, likedOlder, likedEmpty)
     renderBlock(items, watchedList, watchedMore, watchedMoreSummary, watchedOlder, watchedEmpty)
-    if (clearBtn) clearBtn.disabled = items.length === 0 || busy !== ''
-    if (refreshBtn) refreshBtn.disabled = busy !== ''
   }
 
   function renderNote() {
     if (!noteBox) return
     const on = Boolean(noteItem)
     noteBox.hidden = !on
+    // 二级面板打开时状态只留在面板里，列表页那条收起来（同一句话不显示两遍）
+    if (listStatus) listStatus.hidden = on || statusText === ''
     // 二级面板打开时，把两块列表让开（同一块地方只显示一样东西）。
     for (const el of document.querySelectorAll('#bili-history .bili-block')) el.hidden = on
     if (!on) return
@@ -365,6 +396,23 @@ export function createBiliHistoryPanel(options = {}) {
     }
     render()
     if (noteItem) renderNote()
+  }
+
+  /** 删一条（只删本地账本里这条，B 站那边的历史/点赞不受影响）。 */
+  async function doDelete(it) {
+    if (busy) return
+    busy = keyOf(it)
+    setStatus(t('biliDeleting'))
+    render()
+    try {
+      const r = await removeItem({ bvid: it.bvid, cid: it.cid })
+      setStatus(r?.ok === false ? String(r.error || t('biliDeleteFailed')) : t('biliDeleted'))
+    } catch (err) {
+      setStatus(String(err?.message || err))
+    } finally {
+      busy = ''
+      await reload()
+    }
   }
 
   async function doAct(it, action) {
@@ -472,7 +520,6 @@ export function createBiliHistoryPanel(options = {}) {
   render()
 
   closeBtn?.addEventListener('click', () => setOpen(false))
-  refreshBtn?.addEventListener('click', () => void reload())
   noteCancel?.addEventListener('click', () => closeNote())
   noteSend?.addEventListener('click', () => void sendComment())
   noteRegen?.addEventListener('click', () => {
@@ -485,21 +532,6 @@ export function createBiliHistoryPanel(options = {}) {
   })
   noteOpenBili?.addEventListener('click', () => {
     if (noteItem) openExternal(urlOf(noteItem))
-  })
-  clearBtn?.addEventListener('click', () => {
-    if (busy) return
-    if (!window.confirm(t('biliHistoryClearConfirm'))) return
-    busy = 'clear'
-    void (async () => {
-      try {
-        await clearHistory()
-      } catch {
-        /* 清不掉就按现状重画 */
-      } finally {
-        busy = ''
-        await reload()
-      }
-    })()
   })
 
   return {

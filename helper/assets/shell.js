@@ -51,9 +51,13 @@ const zh = {
   menuBiliHistory: '看过的视频',
   biliHistoryClose: '关闭',
   biliHistoryEmpty: '还没在 B 站看过视频。把链接发给她，她看完就会记在这里。',
-  biliHistoryRefresh: '刷新',
-  biliHistoryClear: '清空记录',
-  biliHistoryClearConfirm: '清空她的 B 站浏览记录？只删本地这份账本，B 站那边的历史不受影响。',
+  // 底部「刷新 / 清空记录」那条工具条已在 2026-10-22 凌晨按用户要求整条撤掉：
+  // 页面因此腾出一整条高度，改成**每条自带一个删除**，排版也跟着放松。
+  biliHistoryDelete: '删除这条',
+  biliHistoryDeleteConfirm: '把「{title}」从浏览记录里删掉？只删本地这条，B 站那边的观看与点赞不受影响。',
+  biliDeleting: '正在删…',
+  biliDeleted: '删掉了',
+  biliDeleteFailed: '没删掉',
   // 顶部大标题与「共 N 条…」那行已在 2026-10-21 深夜按用户意见删掉：
   // 「我喜欢的」「我看过的」两个板块标题改用原来那个大标题的格式。
   biliHistoryInfoOnly: '只看了元信息，没取画面',
@@ -288,9 +292,13 @@ const en = {
   menuBiliHistory: 'Videos she watched',
   biliHistoryClose: 'Close',
   biliHistoryEmpty: 'She has not watched anything on Bilibili yet. Send her a link and it will show up here.',
-  biliHistoryRefresh: 'Refresh',
-  biliHistoryClear: 'Clear',
-  biliHistoryClearConfirm: 'Clear her Bilibili watch log? This only deletes the local log; your Bilibili history is untouched.',
+  // The bottom "Refresh / Clear" toolbar was removed (user, 2026-10-22):
+  // each row now carries its own delete button instead.
+  biliHistoryDelete: 'Delete this one',
+  biliHistoryDeleteConfirm: 'Remove "{title}" from the watch log? This only deletes the local entry; your Bilibili history and likes are untouched.',
+  biliDeleting: 'Deleting…',
+  biliDeleted: 'Deleted',
+  biliDeleteFailed: 'Could not delete',
   // The top title and the "N videos" line were removed (user, 2026-10-21):
   // the two block titles now use the former title's format.
   biliHistoryInfoOnly: 'metadata only, no frames',
@@ -754,7 +762,8 @@ function main() {
       }
     },
     fetchHistory: () => (typeof api.biliHistory === 'function' ? api.biliHistory({ limit: 50 }) : Promise.resolve(null)),
-    clearHistory: () => (typeof api.biliHistoryClear === 'function' ? api.biliHistoryClear() : Promise.resolve(null)),
+    // 单条删除（底部「刷新 / 清空记录」已按用户要求撤掉）
+    removeItem: (payload) => (typeof api.biliHistoryDelete === 'function' ? api.biliHistoryDelete(payload) : Promise.resolve({ ok: false, error: '删除通道没接上' })),
     openExternal: (url) => { if (typeof api.openExternal === 'function') api.openExternal(url) },
     // 赞/币/藏：真的发 B 站接口（用登录 cookie + bili_jct），不挂网页。
     act: (payload) => (typeof api.biliAct === 'function' ? api.biliAct(payload) : Promise.resolve(null)),

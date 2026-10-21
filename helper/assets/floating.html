@@ -164,6 +164,11 @@
           <button id="bili-history-close" type="button"></button>
         </header>
 
+        <!-- 列表页的状态行：赞/币/藏/删除的成败都显示在这儿。
+             ★ 必须有：二级面板里的 #bili-note-status 在列表页是隐藏的，
+               早先把错误全写在那边，用户点按钮等于毫无反馈（2026-10-22 报「根本不生效」）。 -->
+        <p class="bili-status" id="bili-history-status" role="status" hidden></p>
+
         <!-- 上半：我喜欢的（liked 有值的那些）。行可点 → 打开二级面板看理由。 -->
         <div class="bili-block" data-block="liked">
           <h3 class="bili-block-title" id="bili-liked-title"></h3>
@@ -208,11 +213,6 @@
             <button id="bili-note-open-bili" type="button"></button>
           </div>
         </div>
-
-        <footer class="bili-history-foot">
-          <button id="bili-history-refresh" type="button"></button>
-          <button id="bili-history-clear" type="button"></button>
-        </footer>
       </section>
       <!-- 「设置」（用户 m03985-C：原「API 配置」抽屉重组）。
            与 #impression 平级、互斥显示（同一时刻只开一个抽屉）。

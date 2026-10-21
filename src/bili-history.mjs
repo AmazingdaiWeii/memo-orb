@@ -279,6 +279,22 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
     })
   }
 
+  /**
+   * 删掉一条（用户 2026-10-22：底部「刷新 / 清空记录」整条撤掉，改成每条自带删除）。
+   * ★ 只动本地账本，B 站那边看过/点赞的记录不受影响 —— 返回里说清楚删了什么，
+   *   免得她以为「删了就等于从来没看过」。
+   */
+  function remove(bvid, cid) {
+    const db = load()
+    const key = `${String(bvid || '')}#${Number(cid) || 0}`
+    const i = db.items.findIndex((x) => `${x.bvid}#${x.cid}` === key)
+    if (i < 0) return { ok: false, error: '账本里没有这条视频' }
+    const [gone] = db.items.splice(i, 1)
+    save()
+    log(`[bili-history] 删除一条：${String(gone?.title || key).slice(0, 30)}`)
+    return { ok: true, removed: 1, title: String(gone?.title || '') }
+  }
+
   function clear() {
     const db = load()
     const n = db.items.length
@@ -296,5 +312,5 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
     return `浏览记录 ${n} 条（最近：${last?.when ?? '?'}《${(last?.title ?? '').slice(0, 20)}》）`
   }
 
-  return { record, list, listLiked, get, markLiked, setAction, updateNote, markSent, setSummary, count, clear, describe, file }
+  return { record, list, listLiked, get, markLiked, setAction, updateNote, markSent, setSummary, remove, count, clear, describe, file }
 }

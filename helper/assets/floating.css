@@ -976,6 +976,17 @@ body.bili-history-open #prompt {
   display: none;
 }
 
+/* ★ 2026-10-22 用户报「左上角我喜欢的和历史对话的 ui 重合了 / 右上 + 和 × 并排」。
+ *   根因不是标题排版：`#history`(top:18 left:12) 与 `#new-conversation`(right:12)
+ *   是 #panel 的**绝对定位**子元素，absolute 不吃 padding，所以
+ *   `body.bili-history-open #panel { padding-top: … }` 让不开它们 ——
+ *   抽屉一开，这两个按钮就钉在面板顶部，压在「喜欢的」标题和右上那颗 × 上。
+ *   全屏抽屉打开时这两个入口本来就该让位（抽屉里没有「新建对话」这回事）。 */
+body.bili-history-open #history,
+body.bili-history-open #new-conversation {
+  display: none;
+}
+
 #composer {
   position: absolute;
   z-index: 2;
@@ -2357,10 +2368,62 @@ body.bili-history-open.expand-up #panel {
   /* ★ 定位上下文：让右上角那颗「×」相对**抽屉**而不是相对整个面板
      （否则它会飞到球那一行的右上角去）。 */
   position: relative;
-  gap: 8px;
+  /* ★ 2026-10-22 用户报「压根没有下拉的滑动进度条」：
+     抽屉是 #panel（column flex）的子项，早先只写了 position/gap/padding，
+     既没有 `flex:1`+`min-height:0` 也没有 `overflow-y`，内容一长就直接溢出，
+     浏览器根本不会给滚动条（对照 #transcript、#history-list 都写了 overflow-y）。
+     两端都要：`min-height:0` 是 flex 子项能收缩的前提，少了它 overflow 不生效。 */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--pin) 40%, transparent) transparent;
+  /* 底部工具条撤掉之后高度宽裕了，块间距从 8 放到 12（用户要「松一些」）。 */
+  gap: 12px;
   /* 顶部大标题删掉之后，这里不再需要给标题留位置 ——
      球的那一份由面板层的 padding-top 让（body.bili-history-open #panel）。 */
   padding-top: 8px;
+  padding-right: 3px;
+}
+
+/* 可见的滑轨（Chromium 里 scrollbar-width 未必生效，两条都写） */
+#bili-history::-webkit-scrollbar {
+  width: 7px;
+}
+
+#bili-history::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pin) 34%, transparent);
+}
+
+#bili-history::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--pin) 55%, transparent);
+}
+
+#bili-history::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 列表页的状态行（赞/币/藏/删除的成败都落在这儿） */
+.bili-status {
+  margin: 0;
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--input-bg) 78%, transparent);
+  color: color-mix(in srgb, var(--pin) 92%, transparent);
+  font-size: 10.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* ★ [hidden] 复位：给元素写过 display 就得自己补一条，
+   否则 UA 的 [hidden]{display:none} 会被上面的声明压过（这类静默失效踩过）。 */
+.bili-status[hidden] {
+  display: none;
 }
 
 body.expand-down.bili-history-open #bili-history {
@@ -2379,22 +2442,29 @@ body.expand-down.bili-history-open #bili-history {
 body.expand-down.history-open #panel,
 body.expand-down.impression-open #panel,
 body.expand-down.api-config-open #panel,
-body.expand-down.theme-open #panel,
-body.expand-down.bili-history-open #panel {
+body.expand-down.theme-open #panel {
   padding-bottom: 56px;
+}
+
+/* ★ 「看过的视频」例外（2026-10-22）：抽屉一开，#history / #new-conversation
+ *   就被隐藏了（见上面那组），底部那 56px 的座位已经没人在坐 ——
+ *   留着就是白白吃掉一截滚动高度。这里只留下 20px 呼吸。 */
+body.expand-down.bili-history-open #panel {
+  padding-bottom: 20px;
 }
 
 .bili-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  /* 底部工具条撤掉后腾出一条高度，块内间距从 6 放到 9（用户 2026-10-22：松一些） */
+  gap: 9px;
   flex: 0 0 auto;
 }
 
 /* 两块之间：间距为主、细线为辅（线太弱反而像没做完） */
 .bili-block + .bili-block {
-  margin-top: 10px;
-  padding-top: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
 }
 
@@ -2419,7 +2489,7 @@ body.expand-down.bili-history-open #panel {
 .bili-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* 卡片：暗色主题下 --white（近黑）与面板底色（也是近黑）几乎同色，
@@ -2445,10 +2515,11 @@ body.expand-down.bili-history-open #panel {
 .bili-row-main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
   width: 100%;
   box-sizing: border-box;
-  padding: 8px 10px 6px;
+  /* 卡内上下留白放松（原 8/10/6）—— 底部工具条撤掉之后不缺地方 */
+  padding: 11px 13px 8px;
   border: 0;
   background: transparent;
   text-align: left;
@@ -2495,8 +2566,8 @@ body.expand-down.bili-history-open #panel {
 .bili-row-acts {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px 7px;
+  gap: 6px;
+  padding: 1px 10px 9px;
 }
 
 /* 「什么时候看的 · 多长」—— 用户点名要放在原来「B 站」按钮的那一格。 */
@@ -2510,20 +2581,48 @@ body.expand-down.bili-history-open #panel {
   white-space: nowrap;
 }
 
+/* 单条删除（2026-10-22）：替代原来整条的「刷新 / 清空记录」工具条。
+   位置就在「时间 · 时长」右边那一格；平时很淡，hover 才显红 ——
+   它是个破坏性操作，不该跟赞/币/藏抢注意力，但必须一眼找得到。 */
+.bili-row-del {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in srgb, var(--pin) 58%, transparent);
+  cursor: pointer;
+}
+
+.bili-row-del:hover:not(:disabled) {
+  background: color-mix(in srgb, #e5484d 16%, transparent);
+  color: #e5484d;
+}
+
+.bili-row-del:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* 动作按钮：淡底胶囊而不是描边方块 —— 四个描边框并排太吵，
    而它们的操作频率很低，不该跟标题抢注意力。 */
 .bili-chip {
   flex: 1 1 0;
-  max-width: 76px;
-  min-height: 22px;
-  padding: 0 6px;
+  max-width: 82px;
+  min-height: 24px;
+  padding: 0 7px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: color-mix(in srgb, var(--input-bg) 70%, transparent);
   color: var(--pin);
   font: inherit;
   font-size: 10.5px;
-  line-height: 20px;
+  line-height: 22px;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -2712,39 +2811,14 @@ body.expand-down.bili-history-open #panel {
   font-style: italic;
 }
 
-.bili-history-foot {
-  display: flex;
-  gap: 8px;
-  flex: 0 0 auto;
-  margin-top: auto;
-  /* ★ 钉在滚动视口下沿：列表一长（两块各 2 条就是 480px+），
-     「刷新 / 清空记录」会被挤到折线以下，用户根本看不见。
-     背景用面板底色而不是 --white —— 暗色下 --white 与卡片同色，
-     会变成一条突兀的黑带；底色 + 上边框才像是"工具条"。 */
-  position: sticky;
-  bottom: 0;
-  gap: 8px;
-  padding: 8px 0 2px;
-  background: var(--panel-bg);
-  box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, 0.35);
-}
-
-#bili-history-refresh,
-#bili-history-clear {
-  flex: 1 1 auto;
-  min-height: 28px;
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-}
-
-#bili-history-refresh:disabled,
-#bili-history-clear:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
+/* ── 底部「刷新 / 清空记录」工具条（2026-10-22 已按用户要求整条删除）─────────
+ *
+ * 用户原话：「这个 ui 根本没存在的必要，直接删了就行。直接在每个摘要里显示一个
+ * 删除的 ui 即可。这样这个页面又能留出来非常大的空间，排版也不需要那么紧凑了。」
+ *
+ * 删除的东西（不要再加回来）：
+ *   · 那条 `position: sticky` + `background: var(--panel-bg)` 的无圆角横带 ——
+ *     它也正是用户报的「直角边」（卡片是 14px 圆角，旁边横着一条直角色带）。
+ *   · 「刷新」：抽屉每次 setOpen 都会 reload，这个按钮本来就多余。
+ *   · 「清空记录」：改成每条自带删除（见 .bili-row-del），不再有「一键全清」。
+ */

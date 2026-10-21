@@ -4555,6 +4555,15 @@ async function boot() {
     if (!biliHistoryStore) return { ok: false, error: '浏览记录没接上' }
     return biliHistoryStore.clear()
   })
+  // 删单条（2026-10-22 用户要求：底部「刷新 / 清空记录」整条去掉，改每条自带删除）。
+  // ★ 只删本地账本这一条；B 站那边的观看/点赞记录不动。
+  ipcMain.handle('orb:bili-history-delete', (_event, payload) => {
+    if (!biliHistoryStore) return { ok: false, error: '浏览记录没接上' }
+    const bvid = String(payload?.bvid || '')
+    const cid = Number(payload?.cid || 0)
+    if (!bvid) return { ok: false, error: '缺 bvid' }
+    return biliHistoryStore.remove(bvid, cid)
+  })
 
   // ── 「看过的视频」页面的动作（2026-10-21）──
   // 点赞/投币/收藏/发评论全是 B 站 OpenAPI 的 POST，用扫码那份 cookie + bili_jct 当 csrf。

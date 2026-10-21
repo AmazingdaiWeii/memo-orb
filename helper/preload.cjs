@@ -200,6 +200,13 @@ contextBridge.exposeInMainWorld('dshOrb', {
   biliHistoryClear() {
     return ipcRenderer.invoke('orb:bili-history-clear')
   },
+  /** 删掉账本里的一条（只删本地这条，B 站的观看/点赞记录不动）。 */
+  biliHistoryDelete(payload) {
+    return ipcRenderer.invoke('orb:bili-history-delete', {
+      bvid: String(payload?.bvid ?? ''),
+      cid: Number(payload?.cid) || 0,
+    })
+  },
   /**
    * 对一条视频做动作：`action` ∈ `like` / `coin` / `fav`。
    * ★ 这些会**真的改动用户账号**（赞会进他的动态），所以只由用户点按钮触发。
