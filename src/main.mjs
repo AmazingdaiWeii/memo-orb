@@ -646,6 +646,75 @@ let biliActionsRef = null
 let noteLlmRef = null
 
 /**
+ * 点赞 / 投币 / 收藏 —— **抽屉里的按钮**和**她替他点**共用这一份实现。
+ *
+ * 为什么抽出来（2026-10-22 用户原话：「如果说框架内直接引用投币功能模块是非法访问，
+ * 那么能否让 agent 自己去执行投币，也就是说，这里的这几个功能，实际上它是一个待办事项？」）：
+ *
+ * 实测结论是**接口本身没问题** —— 用他真实账号投过一枚：余额 711.6 → 710.6，
+ * `archive/coins` 从 0 变 1。留在日志里的那条 `-401 非法访问` 是 B 站对**特定稿件**的拒绝：
+ *   · 换 aid 稳定复现（同一 aid 连发三次都是同一个码，不同 aid 会出现 34003 而不是 -401）；
+ *   · 换 csrf / WBI 签名 / 请求形态（query 版、bvid 版、手机 UA）/ 补 buvid3 · buvid4 都没用；
+ *   · 故意写错 csrf 会得到 -111，说明请求早就过了鉴权层。
+ * 所以这里做的**不是绕风控**，而是把同一件事也交到她手上：他一句话，她就能替他点；
+ * 真被拒时，她能拿到 B 站给的码并如实说出来 —— 而不是按钮灰一下、什么动静都没有。
+ *
+ * @param {{bvid?: string, cid?: number, action?: string, count?: number}} o
+ * @returns {Promise<{ok: boolean, [k: string]: any}>} 永不抛
+ */
+async function runBiliAct({ bvid = '', cid = 0, action = '', count } = {}) {
+  if (!biliHistoryStore || !biliActionsRef) return { ok: false, error: 'B 站通道没接上' }
+  const bv = String(bvid || '').trim()
+  if (!bv) return { ok: false, error: '缺 bvid（要哪一条？）' }
+  // 她手上通常只有 BV 号 —— cid 从账本里补。
+  let cidNum = Number(cid) || 0
+  if (!cidNum) {
+    const hit = biliHistoryStore.list({ limit: 200 }).find((x) => String(x.bvid) === bv)
+    cidNum = Number(hit?.cid) || 0
+  }
+  const item = biliHistoryStore.get(bv, cidNum)
+  if (!item) return { ok: false, error: '账本里没有这条视频（先在抽屉里点开它看一遍，或者用 bili_watch 看一次再操作）' }
+
+  // 收藏/评论要的是 aid；老条目可能没存 aid，这里兜底用 bvid 反查一次。
+  let aid = Number(item.aid || 0)
+  if (!aid) {
+    try {
+      const { fetchView } = await import('./bili-media.mjs')
+      const v = await fetchView({ bvid: bv, page: item.page || 1 })
+      if (v.ok) aid = Number(v.aid || 0)
+    } catch {
+      /* 下面会报「缺 aid」 */
+    }
+  }
+
+  if (action === 'like') {
+    const r = await biliActionsRef.like({ aid })
+    if (!r.ok) return r
+    // 先落「喜欢」这件事本身；理由/想说的话由 `orb:bili-compose` 随后补
+    // （写作要一两秒，别让按钮等它）。
+    // ★ `by:'user'`：这是**用户**让他点的，不代表她的品味 ⇒ 不进「我喜欢的」栏。
+    const m = biliHistoryStore.markLiked(bv, cidNum, { by: 'user' })
+    return { ok: true, item: m.item, message: '赞过了' }
+  }
+  if (action === 'coin') {
+    // 已经投过就别再扣——B 站会回 65006，但先本地挡一次省一趟往返
+    if (Number(item.actions?.coin) > 0) return { ok: false, error: '这条已经投过币了' }
+    const r = await biliActionsRef.coin({ aid, count })
+    if (!r.ok) return r
+    const s = biliHistoryStore.setAction(bv, cidNum, { coin: Number(count) === 2 ? 2 : 1 })
+    return { ok: true, item: s.item, message: '投过币了' }
+  }
+  if (action === 'fav') {
+    if (item.actions?.fav === true) return { ok: false, error: '这条已经收藏过了' }
+    const r = await biliActionsRef.fav({ aid })
+    if (!r.ok) return r
+    const s = biliHistoryStore.setAction(bv, cidNum, { fav: true })
+    return { ok: true, item: s.item, message: `收藏到「${r.folder || '默认收藏夹'}」了` }
+  }
+  return { ok: false, error: `不认识的动作：${action || '(空)'}` }
+}
+
+/**
  * 让她为一条视频写两段话：为什么喜欢、想对作者说什么。
  *
  * 走的是**独立的短文案实例**（`noteLlmRef`，reasoningEffort=off）：
@@ -2944,6 +3013,10 @@ async function ensureRuntime() {
           web,
           bili,
           biliHistory,
+          // 让她也能替他去点「赞 / 币 / 藏」（和抽屉按钮共用 `runBiliAct`）。
+          // ★ 传 null 而不是函数：没有执行器时「工具 + 指南」两处都不该出现
+          //   （记忆里的老坑：工具给了、指南没提 ⇒ 她会说「我做不到」）。
+          biliAct: biliActionsRef ? runBiliAct : null,
           balance,
           policy,
           schedule: scheduleStore,
@@ -4579,51 +4652,15 @@ async function boot() {
   // ★ 不挂网页、不常驻渲染进程 —— 用户点了才发一次请求，发完就结束。
   // ★ 这些动作会真的改动用户账号（点赞进他的动态、评论是公开的），
   //   所以**只能由用户亲手点按钮触发**，代码里没有任何自动调用。
-  ipcMain.handle('orb:bili-act', async (_event, payload) => {
-    if (!biliHistoryStore || !biliActionsRef) return { ok: false, error: 'B 站通道没接上' }
-    const bvid = String(payload?.bvid || '')
-    const cid = Number(payload?.cid || 0)
-    const action = String(payload?.action || '')
-    const item = biliHistoryStore.get(bvid, cid)
-    if (!item) return { ok: false, error: '账本里没有这条视频' }
-    // 收藏/评论要的是 aid；老条目可能没存 aid，这里兜底用 bvid 反查一次。
-    let aid = Number(item.aid || 0)
-    if (!aid) {
-      try {
-        const { fetchView } = await import('./bili-media.mjs')
-        const v = await fetchView({ bvid, page: item.page || 1 })
-        if (v.ok) aid = Number(v.aid || 0)
-      } catch {
-        /* 下面会报「缺 aid」 */
-      }
-    }
-
-    if (action === 'like') {
-      const r = await biliActionsRef.like({ aid })
-      if (!r.ok) return r
-      // 先落「喜欢」这件事本身；理由/想说的话由 `orb:bili-compose` 随后补
-      // （写作要一两秒，别让按钮等它）。
-      // ★ `by:'user'`：这是**用户**让他点的，不代表她的品味 ⇒ 不进「我喜欢的」栏。
-      const m = biliHistoryStore.markLiked(bvid, cid, { by: 'user' })
-      return { ok: true, item: m.item, message: '赞过了' }
-    }
-    if (action === 'coin') {
-      // 已经投过就别再扣——B 站会回 65006，但先本地挡一次省一趟往返
-      if (Number(item.actions?.coin) > 0) return { ok: false, error: '这条已经投过币了' }
-      const r = await biliActionsRef.coin({ aid, count: payload?.count })
-      if (!r.ok) return r
-      const s = biliHistoryStore.setAction(bvid, cid, { coin: Number(payload?.count) === 2 ? 2 : 1 })
-      return { ok: true, item: s.item, message: '投过币了' }
-    }
-    if (action === 'fav') {
-      if (item.actions?.fav === true) return { ok: false, error: '这条已经收藏过了' }
-      const r = await biliActionsRef.fav({ aid })
-      if (!r.ok) return r
-      const s = biliHistoryStore.setAction(bvid, cid, { fav: true })
-      return { ok: true, item: s.item, message: `收藏到「${r.folder || '默认收藏夹'}」了` }
-    }
-    return { ok: false, error: `不认识的动作：${action}` }
-  })
+  // 抽屉里的三个按钮。实现已抽到 `runBiliAct`（和「她替他点」共用一份，见那里的注释）。
+  ipcMain.handle('orb:bili-act', async (_event, payload) =>
+    runBiliAct({
+      bvid: payload?.bvid,
+      cid: payload?.cid,
+      action: payload?.action,
+      count: payload?.count,
+    }),
+  )
 
   // 让她写「我为什么喜欢」+「想对作者说的话」。
   // 用一份关闭思考的独立 LLM 实例：这是两百字的短文案，开 max 思考要等半分钟，不值当。

@@ -53,7 +53,7 @@ function normalizeMemoryPath(raw) {
  *        指南里也不能提（否则她会去调一个不存在的工具）。两处由同一份 `hasWeb` 驱动。
  *        bili 同理：没有 B 站登录/取帧能力时，`bili_watch` 不存在，指南里也不提。
  */
-export function buildTools({ web = false, bili = false, biliHistory = false, balance = false } = {}) {
+export function buildTools({ web = false, bili = false, biliHistory = false, biliAct = false, balance = false } = {}) {
   const tools = [
     {
       type: 'function',
@@ -403,6 +403,40 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bal
           properties: {
             limit: { type: 'number', description: '要几条，默认 10，上限 50' },
           },
+        },
+      },
+    })
+  }
+
+  // ── B 站：真的去点「赞 / 币 / 藏」（写接口，会动他的账号）──
+  if (biliAct) {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'bili_act',
+        description:
+          '替他在 B 站上真的点一下：`like` 点赞 / `coin` 投币 / `fav` 收藏到默认收藏夹。' +
+          '这三个都会**真的写进他本人的 B 站账号**（和他在抽屉里点按钮完全一样）。' +
+          '什么时候用：他说「帮我把这条投个币」「这条收藏一下」「给他点个赞」时。' +
+          '**投币要花他账户里的硬币**：一枚 = 1 币，一次最多两枚；他没明说「投币/给两个币」就别投，' +
+          '想看成本就先问一句「投一枚还是两枚」。' +
+          '`bvid` 给 BV 号即可（账本里能查到的那条就不用再给 cid）。' +
+          '**发评论不在这个工具里**：公开发言一定要他本人看过文本再点头。' +
+          '结果里 `ok:false` 时把 `error` 原样告诉他，别自己编理由 —— ' +
+          'B 站有时会拒绝给某条稿件投币（`code:-401` 非法访问），这种就是说「这条不让投」，' +
+          '不是你没登录、也不是网络问题。',
+        parameters: {
+          type: 'object',
+          properties: {
+            bvid: { type: 'string', description: 'BV 号（例如 BV1fUqdBmEc2）' },
+            action: {
+              type: 'string',
+              enum: ['like', 'coin', 'fav'],
+              description: 'like=点赞 / coin=投币（花钱）/ fav=收藏到默认收藏夹',
+            },
+            count: { type: 'number', description: '只对 coin 有意义：投几枚（1 或 2），默认 1' },
+          },
+          required: ['bvid', 'action'],
         },
       },
     })
@@ -767,6 +801,40 @@ async function executeTool(
           message: items.length === 0 ? '账本还是空的 —— 你还没在 B 站看过任何视频' : undefined,
         })
       }
+      case 'bili_act': {
+        if (!biliAct) return JSON.stringify({ ok: false, error: '点赞/投币/收藏没接上（宿主没提供），这次做不了' })
+        const bvid = String(args?.bvid ?? '').trim()
+        const action = String(args?.action ?? '').trim()
+        if (!bvid) return JSON.stringify({ ok: false, error: 'bvid 必填（哪一条视频？）' })
+        if (!['like', 'coin', 'fav'].includes(action)) {
+          return JSON.stringify({ ok: false, error: `action 只能是 like / coin / fav，你给的是「${action}」` })
+        }
+        // 投币上限是 2 枚，这里夹一下，别让模型手滑传个 9
+        const count = action === 'coin' ? (Number(args?.count) === 2 ? 2 : 1) : undefined
+        const r = await biliAct({ bvid, action, count })
+        // ★ 日志只记「做了什么、成没成」，不记 cookie、不记 aid（记忆里那条硬规矩）
+        log(`[brain] bili_act ${action} ${bvid}${count ? ` x${count}` : ''} → ${r?.ok ? 'ok' : r?.code || r?.error}`)
+        if (!r?.ok) {
+          return JSON.stringify({
+            ok: false,
+            code: r?.code,
+            error: r?.error || '没成功',
+            hint:
+              r?.code === -401
+                ? 'B 站拒绝给这条稿件这个操作（-401 非法访问）—— 常见于作者/版权限制。照实说「这条不让投/让收藏」，别说成「我没登录」。'
+                : '把 error 原样告诉他，别自己编原因。',
+          })
+        }
+        return JSON.stringify({
+          ok: true,
+          bvid,
+          action,
+          ...(count ? { count } : {}),
+          message: r.message,
+          // 让模型知道「这条现在在账本里是什么状态」，免得它下一句又说「还没投呢」
+          state: r.item?.actions ? { ...r.item.actions, liked: r.item.liked ? true : undefined } : undefined,
+        })
+      }
       case 'check_balance': {
         if (!balance) return JSON.stringify({ ok: false, error: '这个服务商没有余额接口，查不到' })
         // force：这是用户/她自己主动要的，就别给 5 分钟前的旧数
@@ -833,6 +901,8 @@ class Brain {
     web = null,
     bili = null,
     biliHistory = null,
+    /** 赞 / 币 / 藏的执行器（宿主注入，和抽屉按钮共用同一份实现）。 */
+    biliAct = null,
     balance = null,
     policy = null,
     schedule = null,
@@ -857,6 +927,7 @@ class Brain {
     this.web = web
     this.bili = bili
     this.biliHistory = biliHistory
+    this.biliAct = biliAct
     this.balance = balance
     this.policy = policy
     this.schedule = schedule
@@ -866,11 +937,19 @@ class Brain {
     this.hasBili = Boolean(bili)
     // 「看过什么」是 bili 的附属能力：没有取帧能力就没有账本，两者一起有一起没有。
     this.hasBiliHistory = Boolean(biliHistory)
+    // 赞 / 币 / 藏：和「看视频」不是一回事（纯写接口，不要取帧），所以单独一个开关。
+    this.hasBiliAct = Boolean(biliAct)
     // 余额不是每个服务商都有（DeepSeek 有 /user/balance，多数中转站没有）。
     // 没法在建实例时就确定（要先发一次请求才知道），所以**工具照给**，
     // 真查不到时它返回 `unsupported:true`，让她如实说「查不到」而不是编一个数。
     this.hasBalance = Boolean(balance)
-    this.tools = buildTools({ web: this.hasWeb, bili: this.hasBili, biliHistory: this.hasBiliHistory, balance: this.hasBalance })
+    this.tools = buildTools({
+      web: this.hasWeb,
+      bili: this.hasBili,
+      biliHistory: this.hasBiliHistory,
+      biliAct: this.hasBiliAct,
+      balance: this.hasBalance,
+    })
     // 按需召回：每轮拿用户这句话去记忆仓里捞旧记录，命中就塞到 user 消息尾部。
     // 放这里（而不是 main）是因为它要跟「轮次/冷却」绑定，跟着 Brain 生命周期最自然。
     this.recall = createRecall({ memstore: this.memstore, log: this.log })
@@ -907,6 +986,7 @@ class Brain {
       toolSchemas: this.tools,
       web: this.hasWeb,
       bili: this.hasBili,
+      biliAct: this.hasBiliAct,
       balance: this.hasBalance,
     })
     const summary = opts.extra?.summary ?? existing?.summary ?? ''

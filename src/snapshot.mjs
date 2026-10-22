@@ -62,10 +62,10 @@ export function hashPrompt(content, toolSchemas) {
  *   那种「说了不能、其实能」比不会用更难查。所以：**改本文件下面任何一句话，就把这个数 +1**。
  *   `Brain.ensureSnapshot()` 看到会话快照里的版本不一样，会在回合边界重建一次（§11）。
  */
-export const GUIDE_VERSION = 9
+export const GUIDE_VERSION = 10
 
 /** 工具指南：告诉模型这套记忆怎么用。字数尽量省，规则靠工具描述兜。 */
-export function buildToolGuide({ web = true, bili = false, balance = false } = {}) {
+export function buildToolGuide({ web = true, bili = false, biliAct = false, balance = false } = {}) {
   const lines = [
     '## 记忆怎么用',
     '上面「长期记忆」是常驻的：它每轮都在你的上下文里，所以只放最要紧的、值得一直记住的东西。',
@@ -130,6 +130,17 @@ export function buildToolGuide({ web = true, bili = false, balance = false } = {
       '余额紧张时默认走 quick，并在回话里说一句「我先快速扫两眼」——让他知道你为什么这么看。',
     )
   }
+  if (biliAct) {
+    lines.push(
+      '',
+      '## 替他点「赞 / 币 / 藏」（会真的动他的账号）',
+      '他说「帮我把这条投个币 / 收藏一下 / 点个赞」时用 `bili_act`，`bvid` 给 BV 号就够了。',
+      '**投币要花他自己账户里的硬币**（一枚 = 1 币，一条最多两枚）：他没明说要投、或者没说投几枚，先问一句再动手。',
+      '这三个动作和他自己在抽屉里点按钮是同一件事，`by` 都会记成「他要的」，**不会**进你那个「我喜欢的」栏。',
+      '失败了就把 `error` 原样说给他：`-401` 是 B 站不让给这条稿件操作（作者/版权限制），不是你掉线了，别编理由。',
+      '**发评论不归你管**：那是公开发言、署他的名，必须他本人看过文本再自己点头。',
+    )
+  }
   if (balance) {
     lines.push(
       '',
@@ -149,14 +160,14 @@ export function buildToolGuide({ web = true, bili = false, balance = false } = {
  *
  * 记忆部分 = `MEMORY.md` 全文 + 其他文件的一行式索引（懒加载，不塞全文）。
  */
-export function renderSystemText({ persona, memoryText, indexLines, web = true, bili = false, balance = false }) {
+export function renderSystemText({ persona, memoryText, indexLines, web = true, bili = false, biliAct = false, balance = false }) {
   const parts = [String(persona ?? '').trim()]
   const mem = [String(memoryText ?? '').trim()]
   if (indexLines?.length) {
     mem.push(['## 记忆仓库里的其他文件（需要时用 read_memory 打开）', ...indexLines].join('\n'))
   }
   parts.push('## 长期记忆\n\n' + mem.filter(Boolean).join('\n\n'))
-  parts.push(buildToolGuide({ web, bili, balance }))
+  parts.push(buildToolGuide({ web, bili, biliAct, balance }))
   return parts.join(SEP)
 }
 
@@ -199,7 +210,7 @@ export function createSnapshotService({ memstore, settings, log = () => {} }) {
    * 渲染一份快照。**返回纯数据，不落盘。**
    * @param {{persona: string, toolSchemas: object[], web?: boolean, bili?: boolean, balance?: boolean}} o
    */
-  async function capture({ persona, toolSchemas, web = true, bili = false, balance = false }) {
+  async function capture({ persona, toolSchemas, web = true, bili = false, biliAct = false, balance = false }) {
     // memstore.list() 有两种形态：local 实现返回 {files:[...]}（listMemory 的枚举结果），
     // 契约允许直接返回数组。两种都吃，免得换引擎就崩。
     const listing = await memstore.list()
@@ -226,6 +237,9 @@ export function createSnapshotService({ memstore, settings, log = () => {} }) {
       //   工具在手边、指南里却一个字没提她该怎么用（2026-10-21 查实时发现，
       //   她因此说过「我这边没登录你的账号」这种本可避免的话）。
       bili,
+      // 同一类漏传的老坑：`biliAct` 不往下传，「替他去点赞/投币/收藏」那一整段
+      // 就又会变成「工具在手、指南不提」，她会照旧说「我不能替你做」。
+      biliAct,
       balance,
     })
     const fileHashes = await memstore.digests()

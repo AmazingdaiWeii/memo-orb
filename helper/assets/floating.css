@@ -384,7 +384,12 @@ body.expand-down #question {
 #api-config[hidden],
 #theme[hidden],
 #lock-gate[hidden],
-#question[hidden] {
+#question[hidden],
+/* 🔴 2026-10-22 补：`#attach-strip` 是 `display:flex`，原来漏了复位 ⇒ 没附件时
+   那条 8px 高的空条子照样挂在输入框边上（`z-index:3`，会抢走一小条点击）。
+   由探针 S14d 的「[hidden] 不变量」抓出来的 —— 它不只抓 B 站抽屉那一次。
+   以后凡是给某个元素写过 display，就必须给**同一个元素**补 [hidden]。 */
+#attach-strip[hidden] {
   display: none;
 }
 
@@ -2370,7 +2375,16 @@ body[data-ds-dark-theme] #bg-scrim {
 /* ── [hidden] 复位（母本只覆盖了它自己的四个抽屉，新的这个得自己补）──
  * ★ `[hidden]` 只在 UA 样式表里是 display:none，权重极低；
  *   凡是我们自己写过 display:flex/grid 的元素，都得另补一条复位。
- *   不补的后果：二级面板打开时两块列表**不让开**，被顶到页面最下面去。 */
+ *   不补的后果：二级面板打开时两块列表**不让开**，被顶到页面最下面去。
+ *
+ * 🔴 2026-10-22 血的教训：给 #bili-history 加 `display:flex`（为了让它能滚）时
+ *   忘了给**它自己**补复位 ⇒ `hidden` 属性彻底失效 ⇒ 抽屉变成"永远开着"，
+ *   和对话内容叠在一起（用户截图里 B 站页面莫名其妙出现在对话框里）。
+ *   凡是给某个元素写过 display，就必须给**同一个元素**补 [hidden]。 */
+#bili-history[hidden] {
+  display: none;
+}
+
 #bili-history .bili-block[hidden],
 #bili-history .bili-note[hidden],
 #bili-history .bili-more[hidden],

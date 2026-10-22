@@ -695,6 +695,44 @@ app
       bgState.stackOpacity !== '' && bgState.stackOpacity === bgState.panelOpacity,
       `stack=${bgState.stackOpacity} panel=${bgState.panelOpacity}`)
 
+    /* ── S14d [hidden] 复位不变量 ───────────────────────────────────────────
+     * `[hidden]` 只是 UA 样式表里的一条 display:none，权重极低：我们自己只要给
+     * 某个元素写过 display:flex / grid，那条规则就把 hidden 属性彻底压死 ⇒
+     * 元素**永远可见**，而且不报错、不崩、看上去像「UI 自己冒出来了」。
+     *
+     * 🔴 2026-10-22 就是这么把「看过的视频」抽屉钉在对话页上的（用户截图：
+     *    「B 站这个页面莫名其妙的出现在了对话框里」）——为了让它能滚，给它加了
+     *    display:flex，忘了给**它自己**补 `[hidden]{display:none}`。
+     *
+     * 所以这里钉一条**通用不变量**（而不是逐个抽屉点名）：凡是挂着 hidden 属性的
+     * 元素，computed display 必须是 none。以后谁再给抽屉加 display，这条会立刻红。
+     * ★ 只查「真的会画出来」的那些：祖先里有 display:none 的，后代本来就看不见，
+     *   它的 computed display 照样返回自己的值（不是 none），那不是漏光。
+     *   注意别写成「祖先挂了 hidden 属性就跳过」—— `#panel` 收起时身上挂着 hidden
+     *   但仍然是 `display:flex`（靠 opacity/scale 做动画），那样会把它所有子元素
+     *   全豁免掉，等于这条断言永远绿。
+     * ★ 豁免 `#panel` 自己：它不是靠 display 收起的，而是靠
+     *   `opacity:0 + scale(0.18) + pointer-events:none` 做那 300ms 动画，
+     *   身上的 hidden 只是状态标记（收起路径也给抽屉复位用）。它若真 display:none，
+     *   展开动画会直接跳变 —— 所以这里必须放它一马。 */
+    const hiddenLeak = await win.webContents.executeJavaScript(
+      `(() => {
+         const rendered = (el) => {
+           for (let p = el.parentElement; p; p = p.parentElement) {
+             if (getComputedStyle(p).display === 'none') return false
+           }
+           return true
+         }
+         return [...document.querySelectorAll('[hidden]')]
+           .filter((el) => el.id !== 'panel')
+           .filter((el) => rendered(el) && getComputedStyle(el).display !== 'none')
+           .map((el) => el.id || String(el.className || el.tagName))
+       })()`,
+    )
+    check('S14d 不变量：带 hidden 属性的元素必须真的 display:none（被自己的 display 压过 = 抽屉永远开着）',
+      Array.isArray(hiddenLeak) && hiddenLeak.length === 0,
+      `漏出来的：${JSON.stringify(hiddenLeak)}`)
+
     /* ── S15 切到历史抽屉 → 视图变 history，且没设图 ⇒ 蒙层必须归零 ───────── */
     win.webContents.send('orb:ring-action', 'history')
     await sleep(700)
