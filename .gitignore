@@ -133,3 +133,10 @@ _factory_backup_*.zip
 # probe/ 下所有下划线开头的临时脚本与数据。★ 其中 probe/_sess*/ 是**真实会话转储**、
 # probe/_dump/ 是历史请求快照，都带私人对话原文，绝不能进公开仓库。
 probe/_*
+
+# ── 公开仓库不收的本地文件（2026-10-23）─────────────────
+# run.cmd 只是本机启动快捷方式（node src/launch.mjs），出厂包内由 export-factory 单独带上；
+# 视频/配音工作区与宣传文案同理：留在 _internal/removed-from-public/，不进公开仓库。
+run.cmd
+video/
+marketing/
