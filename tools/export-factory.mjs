@@ -20,7 +20,7 @@
  *   config.json         由 config.example.json 生成（agentId=null ⇒ 首启新建 agent）
  *   data/               空目录，首次运行时她自己长出 memory/ 与 conversations/
  *   开发笔记/            脱敏后的踩坑与交接记录（用户 2026-10-22 要求随包分发，
- *                       让人接手时不必重走同样的错）。来源见 NOTE_SOURCES。
+ *                       让人接手时不必重走同样的错）。来源：仓库 docs/ 下的同名文件，原样复制。
  *
  * 不拷（逐条理由见 SKIP_REASONS）。
  *
@@ -103,7 +103,7 @@ const SKIP_REASONS = [
   ['art/', '美术制作过程（90 MB，运行期不读）'],
   ['generated-images/', '生成图产物'],
   ['video/', '视频 / 配音 / 素材'],
-  ['docs/', '只放对外文档（8 篇）与 3 张截图；交接记录、待办、计划书等 61 份内部材料已移到 _internal/（.gitignore 挡住，不进仓库）；其中踩坑类经脱敏后以「开发笔记/」随包，原始过程不整份发'],
+  ['docs/', '只有三篇随包笔记（00/01/02，同「开发笔记/」）与 3 张 README 用截图；其余交接记录、待办、计划书等一律不留（已移到 _internal/，.gitignore 挡住）'],
   ['tools/', '一次性开发脚本（打包 / 沙箱 / 探测 / 出厂化）'],
   ['probe/', '调试探针'],
   ['preview-status-capsule/', '状态胶囊预览'],
@@ -112,8 +112,8 @@ const SKIP_REASONS = [
   ['.git/', '版本库'],
   ['背景/', '与 helper/assets/backgrounds/ 逐字节重复（6/6 相同），壁纸仍在 helper 内'],
   ['config.example.json', '由它生成 config.json，模板本身不发'],
-  ['README.md', '开发手册（含私有过程）；脱敏后以「开发笔记/01」随包'],
-  ['交接文档_当前进度*.md 等进度类交接文档', '内部交接（问题清单那篇以「开发笔记/02」随包）'],
+  ['README.md', '开发手册；未脱敏的原始交接记录不进仓库'],
+  ['交接文档_当前进度*.md 等进度类交接文档', '内部交接，不进仓库也不随包'],
   ['*.bak / .wbapp_* / .gitignore', '本机残留'],
   ['build.ps1（构建脚本）', '开发工具，不随包；一次性脚本已归档到 tools/legacy/，打包用二进制在 tools/bin/'],
 ]
@@ -173,169 +173,17 @@ function human(bytes) {
 // 不改写技术结论、不删错误过程 —— 错误过程本身就是这份笔记的价值。
 const NOTE_DIR = '开发笔记'
 
-const NOTE_SOURCES = [
-  ['01_开发手册_架构与历史.md', 'docs/开发交接文档_2026-10-22.md',
-    '架构与目录职责、素材与署名、历史决策来龙去脉（含已被后续推翻的旧描述，文中会标注）'],
-  ['02_已趟过的坑_球侧问题清单.md', 'docs/交接文档_球侧问题清单_2026-10-22.md',
-    '八百多行问题清单：被推翻的错误结论（§0.1）、红线、事故复盘、修复方式与证据位置'],
+// 2026-10-22 用户裁定：可以公开的只有这三篇，它们就住在仓库 docs/ 里。
+// 出厂包原样复制过去，不再拼抬头、不再二次生成 —— 一处内容，两处可见，不会漂移。
+const NOTE_FILES = [
+  '00_从这里读起.md',
+  '01_开发手册_架构与历史.md',
+  '02_已趟过的坑_球侧问题清单.md',
 ]
 
-/** 脱敏：只替换「在本机才有意义」的标识，不碰技术结论。顺序有意义，先长后短。 */
-const REDACT = [
-  [/sk-[A-Za-z0-9]{16,}/g, '<已移除的 API key>'],
-  [/[A-Za-z]:[\\/]Users[\\/][^\s`'"）)，。]*/g, '<本机路径>'],
-  [/\bAdministrator\b/g, '<用户名>'],
-  // 2026-10-22：随包的 02 笔记里出现过作者本人 B 站账号名与 UID（脱敏漏项，已从源头改写）。
-  // 这里再加一道兜底：笔记源文档以后再出现账号字段，也不会原样发出去。
-  [/\bmid\s*[=:]\s*\d{5,12}\b/g, 'mid=<哔哩 UID>'],
-  [/\buname\s*[=:]\s*(?!-)[^\s，。；;、)`]+/g, 'uname=<哔哩账号名>'],
-  [/\borb-2026\d{4}\b/g, 'orb-YYYYMMDD'],
-  [/\bagent-local-[0-9a-f][0-9a-f-]{6,}/g, 'agent-local-<uuid>'],
-  [/[A-Za-z]:[\\/]+Memo orb[\\/]*/gi, '<项目根>/'],
-  [/[A-Za-z]:[\\/]+orb-probe[\\/]*/gi, '<本机路径>/'],
-  [/[A-Za-z]:[\\/]+SteamLibrary[\\/]*/gi, '<本机路径>/'],
-  [/[A-Za-z]:[\\/]letta_orb/gi, '<母本副本>'],
-  [/[A-Za-z]:[\\/]dsh-workspace[^\s`'"）)，。]*/g, '<上游工作区>'],
-  [/[A-Za-z]:[\\/]dsh-home[^\s`'"）)，。]*/g, '<本机路径>'],
-  [/[A-Za-z]:[\\/]ComfyUI[^\s`'"）)，。]*/gi, '<本机路径>'],
-]
+// 2026-10-22 起停用：原来的 REDACT 脱敏表、NOTE_HEADERS 抬头、NOTE_INDEX 目录页
+// 三套生成机制已删除。三篇笔记在仓库 docs/ 里就是成品，本脚本只做原样复制。
 
-function redact(text) {
-  let out = text
-  for (const [re, to] of REDACT) out = out.replace(re, to)
-  return out
-}
-
-const NOTE_HEADERS = `> **这份文档为什么在这里**
->
-> 它是这个项目开发期间的内部记录，随出厂包一起发出来，是为了让接手的人**不必重走同样的错**。
-> 里面包含当时**判断错误、返工、丢文件、踩坑**的完整过程 —— 那正是它的价值，不要当废话删掉。
-> 分发前已做脱敏：本机绝对路径、本机用户名、本机 agent id 都换成了占位符；技术结论一字未改。
->
-> 注意：文档写于某个具体日期，是**历史快照**。行号、文件名、结论都可能已被后续改动推翻
-> （尤其「02_已趟过的坑」的 §0.1 专门列出「已被推翻的结论」）。**以当前代码为准，以文档为线索。**
-
----
-
-`
-
-const NOTE_INDEX = [
-  '# 从这里读起',
-  '',
-  '这份 `开发笔记/` 是原作者做出 Orb 的过程中留下的记录，**连同出厂包一起发给你**，',
-  '目的只有一个：你接手改它的时候，不必把他已经踩过的坑再踩一遍。',
-  '',
-  '它们是**历史快照**（写于 2026-10-06 ~ 2026-10-22）。行号、文件名、结论都可能被后续改动推翻，',
-  '`02_已趟过的坑` 的 §0.1 专门列了「已经确认错误的结论」—— 那一节比正文档更值得先读。',
-  '**以当前代码为准，以这些文档为线索。**',
-  '',
-  '---',
-  '',
-  '## 一、三条铁律',
-  '',
-  '1. **改任何东西之前先留回退点。** 副本放到项目外（另起一份目录），不要只在原地加 `.bak` 后缀——',
-  '   这个项目历史上就因为「原地备份等于没备份」整份丢过 `helper/assets/floating.css`。',
-  '2. **改完 `.js/.mjs/.cjs` 跑 `node --check <文件>`；改完 CSS 必须真起一次界面点一遍。**',
-  '   CSS 少一行不会报错，只会让某个功能**静默消失**（见第四节第 1 条）。',
-  '3. **探针/测试不许写生产数据。** 生产数据是 `config.json` 与 `data/`；',
-  '   自测时用 `ORB_DATA=<临时目录>` 加一次性 agentId。`data/` 里的会话与记忆**不可再生**。',
-  '',
-  '## 二、30 秒环境事实',
-  '',
-  '| 项 | 值 |',
-  '|---|---|',
-  '| 运行时 | Node `^22.19 || >=24`；Electron 44（`runtime/electron/` 自带，不必另装） |',
-  '| 依赖 | **零 npm 依赖**，`package.json` 的 `dependencies` 为空，没有 `node_modules/` |',
-  WITH_RUNTIME
-    ? '| 入口 | `Orb.exe`（双击即用，不需要系统装 Node/Electron）→ `src/launch.mjs` → 动态 import `src/main.mjs`；排查问题用 `run.cmd`，它能看见报错 |'
-    : '| 入口 | `run.cmd` → `node src/launch.mjs` → 动态 import `src/main.mjs`（源码仓库版不含 `Orb.exe`，需自备 Node + Electron） |',
-  '| 路径 | **全部相对项目根**（`ROOT` = `src/` 的上一级）。整个文件夹搬到任何盘都能跑 |',
-  '| 数据根 | `data/`，可用环境变量 `ORB_DATA` 覆盖；删掉 `data/` 即等于恢复出厂 |',
-  '| 出厂态 | `config.json` 里 `agentId: null` ⇒ 首次启动自动新建 agent，并把人格烤进 system prompt |',
-  '| 人格卡 | `鲸鱼娘_persona.md`，运行期**必需**，缺了启动直接失败 |',
-  '',
-  '## 三、目录职责',
-  '',
-  '```',
-  ...(WITH_RUNTIME ? ['Orb.exe                 双击启动（~170 KB 的壳，内部拉起 runtime/electron/electron.exe）'] : []),
-  'run.cmd                命令行启动器（node src/launch.mjs）',
-  'config.json            模型名、窗口、权限（出厂 permission=read-only）',
-  'src/                   主进程：llm.mjs / brain.mjs / memory*.mjs / persona.mjs / tts/ …',
-  'helper/                球侧：lib/main.js（窗口 + 43 个 IPC handler）、',
-  '                       assets/（shell.js、floating.css、素材、vendor）',
-  'runtime/electron/      自带 Electron 运行时（366 MB）',
-  'data/                  运行期数据：memfs/（记忆仓）、conversations/、providers/auth.json',
-  '鲸鱼娘_persona.md      人格卡（system prompt 的来源）',
-  '开发笔记/              你正在读的这份',
-  '```',
-  '',
-  '## 四、已经付过代价的坑',
-  '',
-  '### 1. 改 CSS 后功能静默消失（最容易重犯）',
-  '`helper/assets/floating.css` 曾被整份写坏、原文件又丢了，只能拿一份 1031 行的老副本重建，',
-  '漏掉 4 段样式（`--panel-opacity`、`#deco` 的 `position/right/bottom/opacity` 与 `--deco-size`、',
-  '`#deco-lane` 的 `z-index`），现场表现是「拖圆环没反应、情绪图消失、底部按钮被压住」，',
-  '而**控制台一行报错都没有**。做法：改完 CSS 真起一次界面，看球的窗口到底装配起来没有',
-  '（右键能出菜单、左键能展开），别只靠眼看样式。',
-  '',
-  '### 2. 「毛玻璃和透明窗口不可兼得」是错的（旧结论已被推翻）',
-  '真正的原因不是窗口合成，是**层叠顺序**：`#bg-stack` 是 `#panel` 的子元素且 `z-index:-1`，',
-  '于是画在 panel 背景**之上** —— ① panel 的 `backdrop-filter` 糊不到任何东西，',
-  '② 面板底色 `--panel-opacity` 的变化被背景图盖住。',
-  '**不要为了修毛玻璃去删 `backdrop-filter`**：这一步做过，删完的后果是「排版乱」。',
-  '',
-  '### 3. 机械批量替换文案 = 隐形的语义破坏',
-  '有一次用脚本一次改了 115 个文件，`node --check` 全过，但 README 出现大量病句，',
-  '还差点把中文塞进标识符（`openLettaWeb` → `open旧后端Web`，33 处）。',
-  '文本替换之后必须**人读一遍**，并扫「ASCII 与汉字相邻」的形态。',
-  '',
-  '### 4. 人格卡有硬断言，改之前先看 `src/persona.mjs`',
-  '`assertPersona` 要求：首行 `# 鲸鱼娘`、含 `## 保险丝`、含 `## 最高准则`（或 `## 只有一条准则`）；',
-  '2026-10-22 起只有 §二 A 一个围栏块（工作态已退役）；改块外说明文字不影响 prompt。',
-  '段落标记是 `## 二、A.`（chat），取标记后**第一个**代码块。改坏了启动即抛错。',
-  '',
-  '### 5. `data/` 是不可再生数据',
-  '`data/conversations/` 是会话原文，`data/memfs/<agentId>/` 是她的记忆（自带 git 历史），',
-  '`data/providers/auth.json` 是明文密钥。**不许进发布包**，改动前先整份备份。',
-  '',
-  '### 6. 路径必须相对项目根',
-  '所有路径都从 `ROOT`（`src/` 的上一级）推出来：`helper/lib/main.js`、`config.json`、',
-  '`鲸鱼娘_persona.md`、`data/`、`logs/`。一旦写死绝对路径，包一搬家就坏。',
-  '',
-  '### 7. 端口是动态的',
-  '球的控制 socket 由系统挑空闲端口，实际端口只在启动日志里（`球的控制 socket 监听 127.0.0.1:<port>`）。',
-  '别把某次看到的端口写进代码。',
-  '',
-  '### 8. bash 的 heredoc 会吃掉反斜杠',
-  '含正则的脚本经 heredoc 写入会静默变形（`\\s` 变 `s`）。含正则的文件一律用编辑器改。',
-  '',
-  '### 9. 不要按命令行模糊匹配批量杀进程',
-  '用 `CommandLine -like "*<项目目录>*"` 批量 `Stop-Process` 会把调用方自己的进程树一起杀掉。',
-  '按精确 PID 杀。',
-  '',
-  '### 10. 杀软可能拦 `electron.exe`',
-  '`src/launch.mjs` 遇到拦截会自动把它复制成 `orb-runtime.exe` 再试一次；',
-  '这个副本是运行时产物，不要打进发布包。',
-  '',
-  '## 五、接手第一小时',
-  '',
-  '1. 读 `02_已趟过的坑/§0.1`：那些是**已经确认错误**的结论，照着旧文档干会走弯路。',
-  '2. 先把现有功能手工过一遍（对话一轮、抽屉、历史、记忆各看一次），拿到「当前是好的」基线再动手。',
-  '3. 确认 `data/` 有备份；确认你要改的文件有回退点。',
-  '4. 改代码 → `node --check`；改 CSS → 真起一次界面点一遍。',
-  '',
-  '## 六、文档索引',
-  '',
-  '| 文件 | 内容 | 什么时候看 |',
-  '|---|---|---|',
-  '| `01_开发手册_架构与历史.md` | 架构、目录职责、素材与署名、历史决策 | 想搞清「为什么这样设计」 |',
-  '| `02_已趟过的坑_球侧问题清单.md` | 八百多行问题清单：错误结论、红线、事故复盘 | **动手前必读** |',
-  '',
-  '---',
-  '',
-  '> 这些文档原为项目内部记录，随包前只做了脱敏（本机绝对路径、用户名、本机 agent id 换成占位符），',
-  '> **技术结论与踩坑过程一字未改**。',
-].join('\n') + '\n'
 
 
 const SCAN = [
@@ -369,23 +217,14 @@ function buildDevNotes(destRoot) {
   const dir = join(destRoot, NOTE_DIR)
   mkdirSync(dir, { recursive: true })
   let bytes = 0
-  for (const [toName, srcRel] of NOTE_SOURCES) {
-    const src = join(ROOT, srcRel)
-    if (!existsSync(src)) { errors.push(`开发笔记源缺失：${srcRel}`); continue }
-    const raw = readFileSync(src, 'utf8').replace(/^\uFEFF/, '')
-    const body = NOTE_HEADERS +
-      `<!-- 摘自 ${srcRel}（原文共 ${raw.split('\n').length} 行），除脱敏外未改写 -->\n\n` +
-      redact(raw)
-    const out = join(dir, toName)
-    writeFileSync(out, body, 'utf8')
-    bytes += Buffer.byteLength(body, 'utf8')
-    log(`  开发笔记 ${toName}`)
+  for (const name of NOTE_FILES) {
+    const src = join(ROOT, 'docs', name)
+    if (!existsSync(src)) { errors.push(`开发笔记源缺失：docs/${name}`); continue }
+    const buf = readFileSync(src)
+    writeFileSync(join(dir, name), buf)
+    bytes += buf.length
+    log(`  开发笔记 ${name}`)
   }
-  // 索引写在最前面（读者第一眼看到的是「先读什么」）
-  const idxPath = join(dir, '00_从这里读起.md')
-  writeFileSync(idxPath, NOTE_INDEX, 'utf8')
-  bytes += Buffer.byteLength(NOTE_INDEX, 'utf8')
-  log(`  开发笔记 00_从这里读起.md`)
   return bytes
 }
 
@@ -411,7 +250,7 @@ if (arg('notes-only')) {
     for (const e of errors) console.log(`  ✗ ${e}`)
     process.exit(1)
   }
-  console.log(`\n开发笔记：${NOTE_SOURCES.length + 1} 篇 / ${human(bytes)}${hits.size ? '（有命中，见上）' : '；脱敏扫描零命中'}`)
+  console.log(`\n开发笔记：${NOTE_FILES.length} 篇 / ${human(bytes)}${hits.size ? '（有命中，见上）' : '；脱敏扫描零命中'}`)
   process.exit(0)
 }
 
