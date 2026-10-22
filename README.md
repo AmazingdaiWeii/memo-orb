@@ -1,6 +1,6 @@
 # Orb —— 交接文档
 
-> **2026-10-19 重大变更（阅读下文前必看）**：旧后端已被整体剥离。`package.json` 现在**零依赖**，`node_modules/` 已删除（释放 454 MB），后端换成自建的 `src/llm.mjs` + `src/brain.mjs` + `src/memstore-local.mjs` + `src/snapshot.mjs` + `src/compact.mjs`，数据根改为项目内 `data/`。本文档下方「大脑：旧后端」等描述均为**剥离前的历史记录**，现状见 `docs/长记忆形态_v1_定稿_2026-10-19.md`。
+> **2026-10-19 重大变更（阅读下文前必看）**：旧后端已被整体剥离。`package.json` 现在**零依赖**，`node_modules/` 已删除（释放 454 MB），后端换成自建的 `src/llm.mjs` + `src/brain.mjs` + `src/memstore-local.mjs` + `src/snapshot.mjs` + `src/compact.mjs`，数据根改为项目内 `data/`。本文档下方「大脑：旧后端」等描述均为**剥离前的历史记录**。
 
 > 交接时间：2026-10-06（原始项目 2026-10-06 建立，同日迁入本工作区）  
 > **项目根目录：`E:\Memo orb`**（就是本仓库根，自此项目与工作区合一）
@@ -10,12 +10,21 @@
 
 ## 〇、素材与署名（开源分发必读）
 
-- **原 `dsh_orb` 的球体素材未获原作者授权，已从仓库移除。** 备份在 `bak/assets-original-20261021-185642/`（只作本地回退用，**不要提交、不要随发布包分发**）。
-- 仓库自带**一张示例球脸**：`helper/assets/orb-idle.gif`（本项目自绘 + AI 生成 + 程序合成的 GIF，1.44MB）。
-- **另自带 12 张作者自制的 GIF**（与上游无关，随仓库正常分发）：6 张球形态在 `helper/assets/avatars/`（smile / cheer / cheeks / heart / point / rice），6 张情绪装饰在 `helper/assets/deco/`（idle / thinking / happy / shy / sad / surprised）。**情绪图是球的唯一表情来源，不要删。**
-- **用户可以自行导入**：把任意 `*.gif` 丢进 `helper/assets/avatars/`，环菜单「换形象」会自动列出来，**不需要改任何配置**。
-  规格与命名规则见 `docs/素材说明_开源版_2026-10-21.md`。
+- **原 `dsh_orb` 的球体素材未获原作者授权，已从仓库移除。** 
+- 仓库自带 **3 张自制球形态**：`helper/assets/avatars/orb-A.gif`（默认头像）、`orb-idle.gif`、`orb-pat.gif`（本项目自绘 + AI 生成 + 程序合成）。
+- **另自带 6 张情绪装饰**（与上游无关，随仓库正常分发）：`helper/assets/deco/`（idle / thinking / happy / shy / sad / surprised）。**情绪图是球的唯一表情来源，不要删。**
+- **用户可以自行导入**：把你**自己制作或已取得授权**的 `*.gif` 丢进 `helper/assets/avatars/`，环菜单「换形象」会自动列出来，**不需要改任何配置**。请确认你对导入的素材拥有相应权利——本仓库不提供、也不指引任何第三方素材的获取途径。
+  素材的规格与命名规则见 `helper/assets/avatars/README.txt`。
 - 角色形象、命名与界面美术均为本项目自有，与上游 `dsh-orb` 及其作者无关。二次分发时请确认没有残留的第三方素材。
+
+### 声明（商标与素材归属）
+
+> **本项目由个人开发者维护，与 DeepSeek AI 无任何隶属、认可或合作关系。**
+>
+> 本仓库**不包含** DeepSeek 的名称、Logo 或任何头像素材。默认球脸 `helper/assets/avatars/orb-A.gif`（另有 `orb-idle.gif`、`orb-pat.gif`）与 `deco/`（6 张情绪图）下的动图，**全部为本项目作者自制**，可随仓库自由分发。
+>
+> 代码与文档中出现的 "DeepSeek" 字样，**仅指其作为可选模型服务商之一**（通过 OpenAI 兼容接口接入），属描述性提及，不构成商标性使用。
+>
 
 ---
 
@@ -82,7 +91,6 @@
 | Electron 运行时 | **借用** `E:\dsh-home\dsh-orb\electron-runtime`（DSH 宿主下载的） | **自带副本** `runtime/electron/`（367MB） |
 | `electronPath` | 绝对路径 `E:/dsh-home/...` | 相对路径 `runtime/electron/electron.exe` |
 | Electron 用户数据 | `%LOCALAPPDATA%\orb-standalone` | `%LOCALAPPDATA%\orb` |
-| probe 脚本路径 | 硬编码 `E:/orb-probe/...` | 全部相对项目根解析 |
 
 **为什么必须切断 electron 运行时**：迁前 orb 会往 DSH home 的electron 目录里写 `debug.log`，
 和 DSH 插件抢同一个 Electron 安装 —— DSH 升级/重装运行时会把 orb 一起弄坏，orb 崩溃也可能污染 DSH 的目录。
@@ -138,7 +146,7 @@ void startLegacy()
 | `src/main.mjs`                      | **核心**。主进程入口：Host + 球 + 协议翻译                                    |
 | `src/legacy-engine.mjs`                     | 拉起 `legacy server`（解析动态端口）+ WebSocket 客户端（按 `request_id` 关联响应）   |
 | `src/launch.mjs`                    | 启动器。用**普通 Node** 跑，这样启动失败能看到报错而不是窗口一闪而过                         |
-| `helper/`                           | 从 `dsh-orb-cordis/packages/bundle/dist/helper` 复制来的球（窗口层 + 渲染层）           |
+| `helper/`                           | 从 上游 `dsh-orb-cordis` 的构建产物复制来的球（窗口层 + 渲染层）           |
 | `helper/lib/main.js`                | 窗口层（**minified**，由上游 `src/*.ts` 编译而来）                           |
 | `helper/assets/*.js\|css\|html`     | 渲染层（**未压缩的可读源码**，可直接改）                                          |
 | `helper/assets/backgrounds/`        | **用户导入的三个页面背景**（主题页导入时复制进来，命名 `bg-<slot>-<时间戳>.<ext>`；槽位 `chat`/`history`/`recall`） |
@@ -155,17 +163,8 @@ void startLegacy()
 | `src/bili-auth.mjs` / `bili-media.mjs` / `bili-watch.mjs` | **B 站**：扫码登录态 → 认片/取直链 → 取关键帧（组合层，brain 只跟 `bili-watch` 说话） |
 | `src/bili-history.mjs`              | **看过的视频**账本（`data/bili-history.json`）：`bili_watch` 成功即记一条，抽屉与 `bili_history` 工具共用同一份 |
 | `src/balance.mjs`                   | **账户余额**（问服务商 `/user/balance`，5 分钟缓存）。她靠这个自己决定贵的事做不做、怎么做 |
-| `helper/assets/deco/`               | 装饰 GIF（六个情绪，**UI 助手的图层用**；由 `tools/copy-deco.mjs` 从 `deco-plan/output/` 拷来） |
-| `tools/copy-deco.mjs`               | 把美术素材改成球能加载的文件名（球侧正则只吃小写安全字符，否则**静默丢弃**）                     |
-| `tools/reset-to-factory.mjs`        | **出厂化重置**：清记忆/人格/对话/锁，默认预演、默认先备份（见 `docs/待办事项.md` P0-8）         |
-| `factory_reset.cmd`                 | 出厂化的双击入口（菜单式，1/2 预演，3/4 才真动手）                                   |
-| `reset_memory.cmd`                  | 只清记忆与对话（保留 agent / 人格 / config / 锁）                             |
-| `build.ps1`                         | 打包成便携 `dist/`；**从 `config.example.json` 生成干净 config**，并做泄漏检查        |
-| `deco-plan/`                        | 装饰 GIF 的生成计划、参考图、成品（见该目录 `TASKS.md` / `CONFIG.md`）              |
-| `probe/`                            | 探针与测试脚本（见下）                                                     |
-| `docs/`                             | **全部文档**（见下「文档地图」）                        |
-| `tools/`                            | 一次性脚本（打包、出厂化、asar 解包、素材拷贝、锁演示）                          |
-| `鲸鱼娘_persona.md`（根）                 | **运行期正本**：`src/persona.mjs` 读它注入 agent 的 `system`，**不能移进 docs/**    |
+| `helper/assets/deco/`               | 装饰 GIF（六个情绪，**UI 助手的图层用**） |
+| `鲸鱼娘_persona.md`（根）                 | **运行期正本**：`src/persona.mjs` 读它注入 agent 的 `system`，**不要放错位置**    |
 
 > ★★ **`.cmd` 一律写成纯 ASCII（0 个 > 0x7F 的字节）。**
 > 新起的 `cmd.exe` 默认是 936 代码页，第二行的 `chcp 65001` **来不及** ——
@@ -173,23 +172,6 @@ void startLegacy()
 > **把后面几行（含 `node` / `pause`）整个吞掉**，症状是「窗口一闪就关」且无报错。
 > 中文解释写进 `.md`；中文运行时输出交给 Node 打印（真控制台上正常）。
 > 自查：`node -e "console.log([...require('fs').readFileSync('x.cmd')].filter(b=>b>127).length)"` → 必须是 `0`。
-
-### 文档地图（`docs/`）
-
-根目录只留 `README.md`、`鲸鱼娘_persona.md` 与运行期文件（`config.json` / `.cmd` / `.ps1`）；所有方案/报告/待办都在 `docs/`：
-
-| 类别 | 文档 |
-| --- | --- |
-| 交接与总览 | `README.open.md`、`功能落地_交接文档.md`、`迁移记录.md` |
-| 待办与状态 | `收尾待办.md`（**离完成最近**）、`docs/待办事项.md`（全量+踩坑）、`待测清单.md`、`未完成事项盘点_2026-10-07.md` |
-| 方案设计 | `豆包式双模式_落地方案.md`、`对话加密_落地方案.md`、`记忆中心_落地方案.md`、`对话风格_反AI感设计.md`、`docs/UI重构指南.md`、`情绪GIF_验证方案.md`、`官方功能可用性与省token方案.md` |
-| 报告与取证 | `环形菜单复刻_MateEngine样式_2026-10-08.md`（**环形菜单主线**）、`主对话与上下文压缩_2026-10-08.md`（**主对话与压缩主线**：主对话口径、上下文压缩提示行、压缩即沉淀方案A、API 页思考与上下文窗口上限）、`勘察报告_环形菜单与美化现状_2026-10-07.md`、`MateEngine_环形菜单_取证报告.md`、`复刻与自制_合规说明.md`、`实测报告.md`、`实测报告_v1.4.md`、`docs/参考-协议与踩坑.md`、`参考-WorkBuddy图片实现.md` |
-| persona | `鲸鱼娘_persona_Loomy版.md`、`persona_v2.1_vs_Loomy版_对照裁决.md` |
-| 路线纪要 | `情绪可视化与人格交换_讨论纪要_2026-10-08.md`（**下一阶段主线**：情绪信号→VRM 桌宠 / 人格卡与社群交换。⚠️ 取证到 `.af` **已从 legacy-code 移除**；推翻多个旧结论——双模式 400 行残留**别拆**（且仍可达）、`history.lock` B1 **已接线应销账**、`_inject_v2.ps1` **已作废**。§2.5 记录了 persona **v3 第四批「我的脸」情绪通道**已落文档未注入） |
-| 测试 | `测试提示词.md` |
-| 打包 | `打包独立化可行性评估_2026-10-08.md` |
-
-（`docs/` 里的历史设计文档按「不改」原则原样保留，其中部分结论已被后续实现推翻。）
 
 ### 与 DSH 的关系（重要）
 
@@ -200,91 +182,14 @@ DSH 里跑的 `dsh-orb` 插件装在 `E:\dsh-home\profiles\desktop\node_modules\
 - 改上游 `dsh-orb-cordis/` → **也不会**自动影响 DSH 里已装的插件（它是构建源，不是运行副本）
 -唯一真正的共享点是 **Electron 运行时**，已经通过自带副本切断了（见第二节）
 
-### 测试/探针（`probe/`）
-
-> ⚠️ **本节两张表是历史记录**：凡是「起旧后端 / 直接对旧后端发协议帧」的脚本（`one-shot-test.mjs`、`e2e-visual.mjs`、`legacy-external.mjs`、`legacy-probe.mjs`、`isolate-open-bug.mjs`）已随旧后端一起删除。
-> **现役探针**：`real-local-smoke.mjs`（真机冒烟，最重要）、`bili-*`、`qr-verify.mjs`、`*-unit.mjs`、`shell-boot-smoke.cjs`。
-
-| 脚本                   | 作用                                              |
-| -------------------- | ----------------------------------------------- |
-| `one-shot-test.mjs`  | **回归测试首选**：一条命令跑完整链路（起旧后端 → 改 config → 起 orb → 两轮连发 → 第 2 轮收尾后截图 + 折叠态诊断）。沙箱里后台活不过单条命令，所以这些必须串在一条命令里 |
-| `e2e-visual.mjs`     | 端到端验证：起旧后端 → 起 orb → 自动发一句 → 截图 → 清理现场             |
-| `legacy-external.mjs` | 在普通 Node 里起旧后端服务端，把 ws 地址写到文件（Electron 里直接起会被 `spawn EPERM` 拦）|
-| `legacy-probe.mjs`    | 纯 Node 的旧后端协议探针（零依赖），用来摸 delta 形状           |
-| `reasoning-test.mjs` | 专门验证 reasoning delta 的编排脚本                      |
-| `host-probe.mjs`     | 最早用来证明「球能脱离 DSH 独立启动」的最小 Host                   |
-| `lock-test.mjs` / `lock-flow-test.mjs` | 对话加密·纯逻辑（58 + 59 条）                              |
-| `lock-wire-probe.mjs` | 对话加密·走真 socket（21 条）                                  |
-| `lock-ui-test.mjs` | 对话加密·**真渲染层**（71 条；jsdom 里跑真 shell.js + 真 floating.html，API 用 Proxy 自动应答） |
-| `image-attach-test.mjs` | 发送图片·**真渲染层**（71 条；jsdom 里跑真 shell.js，canvas/createImageBitmap/objectURL 打桩但**产品逻辑全走真代码**） |
-| `image-wire-probe.mjs` | 发送图片·**上送链路**（26 条；preload → helper/lib/main.js → src/main.mjs 三段源码断言，专抓「跨进程静默丢字段」） |
-| `mode-wire-probe.mjs` | ~~双模式 host 侧（44 条）~~ 🔴 **已作废**（2026-10-07 双模式取消）                   |
-| `impression-test.mjs` | 记忆中心·纯逻辑（128 条）                                      |
-| `impression-wire-probe.mjs` | 记忆中心·端到端（走真 socket，会**真的跑一次印象整理**）                 |
-| `mood-test.mjs` | 情绪 GIF·纯逻辑（131 条；**正则从 `helper/lib/main.js` 现读**，不抄一份）    |
-| `mood-wire-probe.mjs` | 情绪 GIF·端到端（走真 socket，验「标记绝不漏进正文」+ 半截标记不漏）           |
-| `webview2-probe.py`  | WebView2 路线的占用对照实验（历史遗留）                        |
-
-`one-shot-test.mjs` 用法（回归测试就跑这个）：
-
-```bash
-node probe/one-shot-test.mjs
-```
-
-它会自动把 `config.json` 的 `legacyUrl` 指向自己起的旧后端，**跑完不会还原**（下次跑会再改一次）。
-判定标准看 `logs/orb.log`：只出现一个 `runtime 就绪`；每条消息各有一次 `已发出` + 一次 `回合结束`；
-最后一条 `loop_status=WAITING_ON_INPUT` 且队列为空。
-
-`e2e-visual.mjs` 用法：
-
-```bash
-E2E_WAIT=90000 E2E_PROMPT="你的问题" node probe/e2e-visual.mjs
-```
-
-它会自动：备份 `config.json` → 注入 `legacyUrl` → 启动 orb（带 `ORB_SELFTEST` 自动输入、`ORB_SHOT` 定时截图）→ 等 → 杀进程树 → 还原 `config.json`。
-
-### 探针清单
-
-| 脚本 | 验什么 | 怎么跑 |
-|---|---|---|
-| `one-shot-test.mjs` | 常规对话链路（回归主力） | `node probe/one-shot-test.mjs` |
-| `window-probe.mjs` | 窗口可调大小 + 尺寸持久化 | `node probe/window-probe.mjs` |
-| `history-test.mjs` | 历史对话**数据层**（读盘、剥 system-reminder、还原块） | `node probe/history-test.mjs` |
-| `history-e2e.mjs` | 历史对话**端到端**（冒充球走socket 收发） | `node probe/history-e2e.mjs` |
-| `isolate-open-bug.mjs` | 直接对旧后端发协议帧，隔离「切会话」问题 | `node probe/isolate-open-bug.mjs [convId]` |
-| `image-attach-test.mjs` | 发送图片·**球侧四步**（收进来 / 画出来 / 删得掉 / 送得走） | `node probe/image-attach-test.mjs` |
-| `image-wire-probe.mjs` | 发送图片·**跨进程不丢字段**（preload → helper → src 三段） | `node probe/image-wire-probe.mjs` |
-| `ring-geometry-test.mjs` | 环形菜单·几何纯函数（40 条） | `node probe/ring-geometry-test.mjs` |
-| `ring-interaction-test.mjs` | 环形菜单·源码契约（69 条；含 §F–§J 与 7 条反向对照。B3 是**需求类断言**：左键必须「点一下钉住」，出处=用户 m01764 反翻 m00827；§J 是真 `import` `backgrounds.js` 验背景白名单与槽映射） | `node probe/ring-interaction-test.mjs` |
-| `ring-menu-layout.cjs` | 环形菜单·**真 Electron 真窗口**（36 条；DPI 1.0 / 1.5 各一趟。跑前必须 `Remove-Item Env:ELECTRON_RUN_AS_NODE`，用 `Start-Process … -PassThru` + 轮询 `HasExited`，`-Wait` 会卡死） | `& runtime\electron\electron.exe probe\ring-menu-layout.cjs` |
-| `shell-boot-smoke.cjs` | **渲染层装配冒烟**（29 条；真渲染进程 + 真点击 + 真拖拽 + 真 IPC，专抓「初始化期抛错 ⇒ 所有监听没注册」与「手柄贴在哪」。2026-10-08 左键/拖动全死那次事故的产物；S14–S22 覆盖主题页与三个页面背景，S23–S27 覆盖上下文压缩提示行（`kind=notice`）与 API 页「思考 / 上下文窗口上限」（点保存真的发出 `orb:api-config-set`，且没动过的字段不进 patch），详见 `docs/环形菜单复刻_MateEngine样式_2026-10-08.md` §11、§12、§13） | `& runtime\electron\electron.exe probe\shell-boot-smoke.cjs` |
-| `main-runtime-once-test.mjs` | 渲染层装配**幂等性**（9 条；jsdom 里真 import 产品模块跑一遍 `main()`，再调一次装配量不得翻倍。注意它尾部必须无条件 `process.exit`，否则全绿时会一直挂着不退出） | `node probe/main-runtime-once-test.mjs` |
-| `context-compaction-test.mjs` | 主对话与上下文压缩·**源码契约**（42 条；A 压缩 delta 接线 / B 文案生成器 / C 会话归属闸门 / D 球侧 `kind=notice` 渲染 / E 压缩即沉淀方案A / F `ORB_FAKE_COMPACTION` 注入点 / G 主对话挂回） | `node probe/context-compaction-test.mjs` |
-| `model-settings-test.mjs` | API 页模型设置·**源码契约 + 内存 fs 上真跑两个 ipc handler**（51 条；思考开关开/关、`context_window_limit` 写入/清空/边界/非法值不落盘、chat+work 两个 agent 都改、写前备份可回滚） | `node probe/model-settings-test.mjs` |
-
-> **写探针的第六条纪律（2026-10-08 新增，专治「断言自己过时」）**：
-> 断言分两类 —— **不变量**（几何合法性、幂等性）与**需求**（交互手感、默认行为）。
-> 需求类断言必须在注释里写清出处（`用户 mXXXXX`）：需求一反向，它就是一条必须**翻面**的红，
-> 而不是「产品坏了」。实测：`ring-interaction-test.mjs` 的 B3 把「不许钉住」（m00827）写成契约，
-> 用户 m01764 要回「点一下钉住」时，红的正是这条断言自己。
-> 另：**jsdom 类探针测不到「贴在哪」** —— 没有布局引擎、`getBoundingClientRect()` 恒 0，
-> 几何只能正则匹配源码字符串。手柄命中区与面板可见边界相差 12px 这种错位，
-> 只有真浏览器（`shell-boot-smoke.cjs` 的 S9b）能量出来。
-
-> **写探针的第四条纪律（2026-10-08 新增，专治「跨进程静默丢字段」）**：
-> 记录型桩（`Proxy` 记下 `api.send` 的实参）**测不出 preload 有没有真的转发**。
-> 凡是「渲染层 → preload → 主进程」的多跳链路，**必须再有一条源码断言型探针**
-> 盯着每一跳的字段名与分支存在性（`image-wire-probe.mjs` 就是这条纪律的产物）。
-> 这类 bug 的共同症状是「日志全正常、零报错、点了没反应」——
-> 与主进程 `ReferenceError` 掐断回调、旧后端按 `otid` 去重是三兄弟，**靠症状分不出来**。
-
-> **写探针的第五条纪律（2026-10-08 新增，专治「渲染层装配中断」）**：
-> 渲染层初始化期抛异常（实测：`helper/assets/api-config.js` 里 `applyClose()` 只写调用不写定义）
-> 会让 `shell.js` 的 `main()` 当场中断，**其后所有球窗口监听（左键 / 拖动 / 右键）全都没注册** ——
-> 宿主 `logs/orb.log` 一行错都没有，只有 `ORB_ELECTRON_FLAGS='--enable-logging'` 才能在 stderr 里
-> 看到 `INFO:CONSOLE` 那行 ReferenceError。⇒ **改完 `helper/assets/` 下任何脚本，必跑
-> `probe/shell-boot-smoke.cjs`**（真起渲染进程、真点一下、看真 IPC：`dataset.shellReady` +
-> 右键收到 `orb:ring-open` + 左键后 `body.expanded`）；纯源码扫描类探针在这一类事故上**必然是绿的**。
+> **写探针的几条纪律**（都是踩出来的）：
+>
+> 1. **不要清空收包数组**，用游标 `mark()` / `since()` 取增量。清空法会把「刚连上时推来的消息」一起抹掉，表现为「对方没响应」——实测因此把探针 bug 当成产品 bug 查了半小时。
+> 2. **每一步都要有连通性自检**。否则「消息没送到」和「对方不应答」在断言里长得一模一样。
+> 3. **断言分两类**：**不变量**（几何合法性、幂等性）与**需求**（交互手感、默认行为）。需求类断言必须在注释里写清出处（`用户 mXXXXX`）：需求一反向，它就是一条必须**翻面**的红，而不是「产品坏了」。
+> 4. **记录型桩测不出来的，要用源码断言再钉一遍**。凡是「渲染层 → preload → 主进程」的多跳链路，Proxy 记下实参 **不代表 preload 真的转发了**；必须再有一条源码断言型探针盯着每一跳的字段名与分支存在性。这类 bug 的共同症状是「日志全正常、零报错、点了没反应」。
+> 5. **渲染层初始化期抛异常会让整个装配中断**。实测 `helper/assets/api-config.js` 里一个「只写调用不写定义」就让 `shell.js` 的 `main()` 当场中断，**其后所有球窗口监听（左键 / 拖动 / 右键）全都没注册**，而宿主 `logs/orb.log` 一行错都没有——只有 `ORB_ELECTRON_FLAGS='--enable-logging'` 才能在 stderr 看到 `INFO:CONSOLE` 那行 ReferenceError。**改完 `helper/assets/` 下任何脚本，必须真起渲染进程点一下看真 IPC**（`dataset.shellReady` + 右键收到 `orb:ring-open` + 左键后 `body.expanded`）；纯源码扫描类检查在这一类事故上**必然是绿的**。
+> 6. **jsdom 类探针测不到「贴在哪」** —— 没有布局引擎、`getBoundingClientRect()` 恒 0，几何只能正则匹配源码字符串。手柄命中区与面板可见边界差 12px 这种错位，只有真浏览器能量出来。
 
 > **写探针的三条纪律**（都是踩出来的）：
 > 1. **不要清空收包数组**，用游标 `mark()` / `since()` 取增量。
@@ -328,7 +233,7 @@ E2E_WAIT=90000 E2E_PROMPT="你的问题" node probe/e2e-visual.mjs
 | 逐字流式输出                                     | ✅            | 一轮 34+ 条同 id delta                               |
 | 工具调用可见                                     | ✅            | `工具调用 · Write · C:\...`                          |
 | 用量统计（为「花费插件」打底）| ✅            | 界面上的 `20.8K tok`                                 |
-| 权限档位（球下拉 →旧后端 mode）                     | ✅ 代码通、UI 未实测 | 见 `docs/待办事项.md`|
+| 权限档位（球下拉 →旧后端 mode）                     | ✅ 代码通、UI 未实测 | — |
 | 端口不冲突| ✅            | 球 `listen(0)`、旧后端 `--listen` 省略 URL；7 次运行端口全不同 |
 | 记忆持久化                                      | ✅            | agent 真的把内容写进 `memfs` 的 `MEMORY.md`              |
 | 运行时与 DSH 完全脱钩| ✅            | 自带 `runtime/electron`，不写DSH home 任何文件           |
@@ -339,6 +244,34 @@ E2E_WAIT=90000 E2E_PROMPT="你的问题" node probe/e2e-visual.mjs
 | **B 站：她看过什么**（环菜单「看过的视频」抽屉 + `bili_history` 工具） | ✅ 2026-10-21 | `bili-history-unit` 31/31；`shell-boot-smoke` S28–S30 |
 | **账户余额进上下文**（每轮一行真数，贵操作前用 `check_balance` 复核） | ✅ 2026-10-21 | `balance-unit` 27/27；实测 `¥8.62` 落进当轮 user 消息 |
 | **认真看 / 快速看由她自己判断**（不做菜单让用户选） | ✅ 2026-10-21 | `mode:"quick"`=2 帧 480×270 / `"thorough"`=5 帧；`bili-watch-unit` M1–M7 |
+| **她真的开口说话**（切句 → 合成 → 播放，边说边合成） | ✅ 2026-10-22 | `speech-unit` 44/44、`speech-wiring-unit` 71/71、`speech-playback-e2e` 24/24 |
+| **语音 mp3 不落盘**（即用即抛，磁盘零增长） | ✅ 2026-10-22 | `speech-playback-e2e` V7（created === revokes） |
+
+### 语音播报（2026-10-22）
+
+她说完的话会用**你自己的音色**念出来。三段结构：
+
+```
+src/tts/volcano.mjs · openai.mjs    文字 → 音频字节（不播、不落盘）
+src/tts/speech.mjs                  切句 / 清洗 / 排队 / 保序 / 打断
+helper/assets/shell.js              渲染层 new Audio(blobUrl)，播完 revoke
+```
+
+**怎么配**：设置 → 「语音播报」。
+
+- `火山引擎`（豆包语音）：`API Key` + `音色 ID` 就能通（单 key 通道）；
+  若你的账号走双头通道，再填 `App ID` / `Access Key`。通道（`variant`）**不用手选**，
+  第一次试听时会自动探测并记下来。
+- `OpenAI 兼容`：任何 `POST {baseUrl}/v1/audio/speech` 的网关都能用（聚合站、自建、别家的兼容模式）。
+  填 `baseUrl` / `apiKey` / `model` / `voice` 即可。
+
+**怎么接别家**：不要改 `volcano.mjs`。新开 `src/tts/<名字>.mjs`，导出
+`{ speak, probe, describe }`（契约见 `src/tts/index.mjs` 头注释），
+在 `index.mjs` 的 `PROVIDERS` 里注册一行。上层（切句、队列、播放、设置页）一行都不用改。
+
+**关于 mp3**：整条链路上音频只在内存里走一趟 ——
+主进程 `Buffer` → IPC 的 base64 → 渲染层 `Blob` + `createObjectURL` → 播完
+`revokeObjectURL`。**磁盘上不会因为说话多出任何文件。**
 
 日志时间线示例（工具调用场景）：
 
@@ -360,9 +293,7 @@ E2E_WAIT=90000 E2E_PROMPT="你的问题" node probe/e2e-visual.mjs
 | ✅ 已修（代码层） | **每次发送白等 3 秒** —— tcc 回包。UI 延迟需用户桌面验收 |
 | ⬜ 待做 | **对话窗口无法调整大小**（可读性差）。用户明确：功能修补做完后再做 |
 
-卡死那 4 个坑的完整记录（含实测日志）→ 见 **`docs/待办事项.md`** 的 P0-1 章节  
-UI 重构该怎么动、动哪里 → 见 **`docs/UI重构指南.md`**  
-旧后端协议细节与踩坑 → 见 **`docs/参考-协议与踩坑.md`**
+卡死那 4 个坑、UI 重构该怎么动、旧后端协议的细节，完整记录都在开发笔记的 01 / 02 两篇里。
 
 ### 回合边界：唯一容易再踩的坑
 
@@ -377,50 +308,26 @@ UI 重构该怎么动、动哪里 → 见 **`docs/UI重构指南.md`**
 
 ## 六、打包与出厂化
 
-交付前必须让这一份里**没有开发者的痕迹** —— 记忆、人格、几十条测试对话、
-40 多个测试期堆出来的僵尸 agent，以及写着你 `agentId` 的 `config.json`。
-
-```bash
-node tools/reset-to-factory.mjs              # 预演（默认，什么都不动）
-node tools/reset-to-factory.mjs --apply      # 完整出厂化
-node tools/reset-to-factory.mjs --apply --memory-only   # 只清记忆与对话
-powershell -ExecutionPolicy Bypass -File build.ps1      # 打包成 dist/
-```
-
-双击入口是 `factory_reset.cmd`（菜单式）与 `reset_memory.cmd`（只清记忆）。
+交付前必须让这一份里**没有开发者的痕迹** —— 记忆、人格、几十条测试对话、一大堆测试期堆出来的僵尸 agent，以及写着你 `agentId` 的 `config.json`。
 
 **三条要点：**
 
-1. **老 `reset_memory.cmd` 的 `git reset --hard HEAD` 不是出厂化。** 记忆目录是个 git 仓库，
-   `reset --hard HEAD` 只回到**最近一次提交**（＝已装满测试记忆的那版），更早的全在
-   `.git/objects` 里，`git log` 一翻就有。正确做法是把整个 `memfs/` 搬走。
-2. **真出厂路径是「删干净 + `config.agentId=null`」。** `ensureRuntime()` 里有
-   `system: target ? undefined : personaFor(mode)` —— 没有 agentId 时会**新建 agent
-   并把 persona 烤进 system**，于是下次启动自动长出一个带着新版人格的全新 agent。
-3. **工具默认是「搬家」不是删除**：先整份拷到
-   `E:\Memo orb_factory_backup_<时间戳>\`，再删原处，随时可回滚。
-   orb 还开着时会拒绝执行（它退出时会把内存里的 config 写回去）。
-
-`build.ps1` 也已修掉一个泄漏：原来它直接 `Copy-Item config.json`，
-**会把你的 agentId 打进 dist**。现在改成从 `config.example.json` 生成干净 config，
-并在打包末尾做 leak check（`dist/config.json` 出现 `agent-local-`、
-或 dist 里出现 `logs/` `exports/` `.workbuddy/` `locks.json` 就 `exit 1`）。
-
-完整清单与踩坑（含 `.cmd` 编码坑、`set /p` 死循环坑）→ `docs/待办事项.md` 的 **P0-8**。
+1. **换记忆 = 搬走整个 `memfs/`，不是 `git reset`。** 记忆目录是个 git 仓库，`reset --hard HEAD` 只回到**最近一次提交**（＝已装满测试记忆的那版），更早的全在 `.git/objects` 里，`git log` 一翻就有。
+2. **真出厂路径是「删干净 + `config.agentId=null`」。** `ensureRuntime()` 里有 `system: target ? undefined : personaFor(mode)` —— 没有 agentId 时会**新建 agent 并把 persona 烤进 system**，于是下次启动自动长出一个带着新版人格的全新 agent。
+3. **动手前先整体备份一份**，再删原处，随时可回滚；orb 还开着时要先退出（它退出时会把内存里的 config 写回去）。
 
 ---
 
 ## 七、不要做的事
 
-- **不要删 `.workbuddy` 目录**（项目数据）
 - **不要改 `E:\dsh-workspace\02_插件开发\dsh-orb-cordis`**：那是上游构建源，本项目只读它
-- **不要把 `helper/` 与上游 `dsh-orb-cordis` 视作两个独立代码库**：`helper/` 是上游的**编译产物副本**。改渲染层（`assets/`）可以直接改；改窗口层（`lib/main.js`）要慎重，因为改的是 minified 产物（重构建议见 `docs/UI重构指南.md`）
+- **不要把 `helper/` 与上游 `dsh-orb-cordis` 视作两个独立代码库**：`helper/` 是上游的**编译产物副本**。改渲染层（`assets/`）可以直接改；改窗口层（`lib/main.js`）要慎重，因为改的是 minified 产物（重构建议写在开发笔记 01 里）
 - **不要把 `config.json` 的 `electronPath` 改回 `E:/dsh-home/...`**：那会重新和 DSH 抢运行时，破坏独立性
 - **不要在 `stop_reason` 里放回合队列**：它比 `WAITING_ON_INPUT` 早到 10~12 秒，
   那期间发的消息会被静默丢弃。只有 `onLoopIdle()` 可以放队列（详见第五节）
 - **不要往 `putBlock` 传已经带会话前缀的 key**：会变成 `conv|conv|r:...` 这种废 key。
   带前缀的完整 key 走 `resend()`，`putBlock()` 只吃裸 key
-- **不要在排队期间现读 `userSeq` 生成 `client_message_id`**：id 必须在入队时定下来（见 `docs/待办事项.md` 坑 4）
+- **不要在排队期间现读 `userSeq` 生成 `client_message_id`**：id 必须在入队时定下来
 - **不要在 `markTurnResponse()` 里遍历全部 `blocks`**：折叠态每个 turn 只有带`data-response` 的
   assistant 才显示正文（`helper/assets/chat.css:171`）。全量重发会把历史轮次已打好的标记**全擦掉** ——
   现象是「发出第 2 条消息后第 1 轮正文整块消失，只剩『用时 N秒』表头」。只碰 `[turnAssistantFrom, end]` 区间

@@ -16,7 +16,7 @@
  *   user | assistant | reasoning | tool | notice | done | usage
  */
 
-import { isBlockedMemoryPath } from './memory.mjs'
+import { isBlockedMemoryPath, searchConversations } from './memory.mjs'
 import { createRecall } from './recall.mjs'
 import { estimateContextTokens, pickBoundary, summarizeMessages } from './compact.mjs'
 import { hashPrompt, hashPersona, GUIDE_VERSION } from './snapshot.mjs'
@@ -29,9 +29,11 @@ const JOURNAL_KINDS = ['fact', 'feel', 'promise', 'growth', 'compact']
 
 /**
  * 一回合最多把几张工具抓来的图塞进上下文。
- * 原生分辨率关键帧一张就 30~120KB base64，8 张已经是「看得清画面」与「不烧穿上下文」的折中。
+ * 单张 480×270 关键帧约 300 视觉 token、30~60KB base64；2026-10-22 用户拍板从 8 提到 60，
+ * 理由是「只看五帧等于没看」。60 张 ≈ 两万视觉 token，一回合只发一次（见下方 imageSink 守卫）。
+ * ★ 必须和 `bili-watch.mjs` 的 `MAX_FRAMES` 保持一致，否则取回来的图会被这里悄悄砍掉。
  */
-const MAX_TOOL_IMAGES = 8
+const MAX_TOOL_IMAGES = 60
 
 
 /** 记忆文件的允许后缀/形态：只收 markdown 类文本，避免把二进制/脚本写进记忆仓。 */
@@ -92,9 +94,12 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
       function: {
         name: 'search_memory',
         description:
-          '全文搜索记忆仓，返回命中的文件、行号和原文片段。' +
-          '什么时候用：想起某件事但不确定写在哪、要确认「我是不是记过这个」、或者他提到旧事时先查再答。' +
-          '怎么用：用具体的名词/名字/短语查（例如「生日」「加班」「讨厌香菜」），不要用「以前的事」这种空词；' +
+          '全文搜索**两个地方**：记忆仓（你自己整理过的文件）和对话仓（你们说过的原话）。' +
+          '什么时候用：想起某件事但不确定写在哪、要确认「我是不是记过这个」、他提到旧事时先查再答。' +
+          '返回里 source=memory 的是记忆仓命中（带文件路径和行号，可用 read_memory 打开看全文）；' +
+          'source=conversation 的是原话命中（带时间、说话人和上下文一小段）——' +
+          '你整理过的记忆可能是转述、可能有偏差，原话才是当时到底怎么说的。' +
+          '怎么用：用具体的名词/名字/短语查（例如「抹香鲸」「生日」「加班」「讨厌香菜」），不要用「以前的事」这种空词；' +
           '一次查不到就换一个更具体的词再查，不要凭印象编。',
         parameters: {
           type: 'object',
@@ -172,7 +177,7 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
         name: 'read_file',
         description:
           '读一个文本文件。' +
-          'path 可以是绝对路径（例如 `E:/Memo orb/docs/设计.md`、`D:/照片/说明.txt`），' +
+          'path 可以是绝对路径（例如 `docs/设计.md`、`D:/照片/说明.txt`），' +
           '也可以是相对 data/workspace/ 的路径。**读取不用他确认**，直接读。' +
           '大文件用 offset/limit 按行分段读（offset 从 1 开始算第几行）；' +
           '单次上限约 256KB，超了会报错告诉你怎么办。' +
@@ -232,7 +237,7 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
         description:
           '按文件名找文件，返回路径和大小。glob 记法：`*` 段内任意、`**` 任意层级、`?` 单字符。' +
           '例：`**/*.md`、`docs/**/*.pdf`、`*.log`。' +
-          'root 不给就相对 data/workspace/，也可以给绝对路径（如 `E:/Memo orb`）。' +
+          'root 不给就相对 data/workspace/，也可以给绝对路径（如 `D:/照片`）。' +
           '不用他确认；会自动跳过 .git / node_modules，最多给 200 条。',
         parameters: {
           type: 'object',
@@ -346,17 +351,18 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
       function: {
         name: 'bili_watch',
         description:
-          '看一条 B 站视频。三档，**由你按需要和余额自己挑，别让用户选**：\n' +
+          '看一条 B 站视频。两个入口，**由你按需要自己挑，别让用户选**：\n' +
           '· `mode:"subtitle"`（轻松看）= 不取一张图，只把**字幕正文**读下来（带时间轴）。' +
           'B 站自带 AI 字幕，覆盖大多数热门片，纯文本几乎不花钱 —— **想知道「讲了什么」先用它**。' +
-          '拿不到字幕时它会明说「这条没有字幕轨」，这时再退到 quick。\n' +
-          '· `mode:"quick"` = 2 帧 480×270（要看画面又省钱）。\n' +
-          '· `mode:"thorough"` = 5 帧原生上限（看小字/代码/界面细节）。\n' +
-          '`subtitles:true` 可以和 quick/thorough 叠加（既看画面又要字幕）。\n' +
+          '拿不到字幕时它会明说「这条没有字幕轨」，这时再改用看画面。\n' +
+          '· `mode:"watch"`（看画面）= 帧数**不用你算**：工具自己按「余额 × 视频时长」定，单帧 480×270，一回合最多 60 帧。' +
+          '锚点：余额充足时一部 5 分钟的片子约 60 帧、约 1 毛钱；余额低于 5 块会自动变稀。' +
+          '`subtitles:true` 可以和 watch 叠加（既看画面又要字幕）。\n' +
           '结果第一行会写清这次是不是用了用户本人登录的 B 站账号（且是否刚向 B 站核实过）与实际画质——照那行说，别自己猜「我有没有登录」。' +
           '什么时候用：他发来 B 站链接让你「看这个视频」「这段讲了什么」「封面/画面里是什么」。' +
           '怎么用：url 直接给他发的整条链接就行（BV 号也行），多 P 记得 page。' +
-          '**先 frames=0 看元信息或先 subtitle 读字幕**（都极便宜）；确定要看画面再给 mode 或 frames，一次最多 8 张。' +
+          '**先 frames=0 看元信息或先 subtitle 读字幕**（都极便宜）；确定要看画面就给 mode:"watch"，不用猜该取几张。' +
+          '余额低于 1 块时，看画面会先弹审批卡问到用户；被拦下就退到 subtitle，或者直接说明钱不够。' +
           '只看字幕 = 只是读了文字稿，你没看见画面；只看关键帧也不等于看完全片 —— 别声称「我看完了整段」，要说清你依据的是字幕还是哪几个时间点的画面。',
         parameters: {
           type: 'object',
@@ -365,19 +371,19 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
             page: { type: 'number', description: '分 P 序号，默认从链接的 ?p= 读，再不然 1' },
             mode: {
               type: 'string',
-              enum: ['subtitle', 'quick', 'thorough'],
+              enum: ['subtitle', 'watch'],
               description:
-                '看法档位：subtitle=只读字幕不取图（最省，先试它）/ quick=2 帧 480×270 / thorough=5 帧原生上限。不给就不取帧。',
+                '看法档位：subtitle=只读字幕不取图（最省，先试它）/ watch=看画面（帧数按余额和时长自动算，480×270，最多 60 帧）。不给就不取帧。',
             },
             subtitles: {
               type: 'boolean',
               description: '顺带把字幕也读下来（任意档位可叠加）。mode:"subtitle" 时自动为 true，不用再给。',
             },
-            frames: { type: 'number', description: '取几张关键帧，0 = 只看元信息；给了就压过 mode 的默认帧数，上限 8' },
+            frames: { type: 'number', description: '取几张关键帧，0 = 只看元信息；给了就压过自动算出来的帧数，上限 60' },
             times: {
               type: 'array',
               items: { type: 'number' },
-              description: '指定秒数（会吸附到最近的关键帧），例如 [12, 45.5]；给了就忽略 frames 的数量',
+              description: '指定秒数（会吸附到最近的关键帧，单张按原生 960×540 给），例如 [12, 45.5]；给了就忽略自动算出来的数量',
             },
             liked: {
               type: 'boolean',
@@ -514,7 +520,7 @@ async function askApproval({ name, args, approve, log, reason }) {
 
 async function executeTool(
   { name, args },
-  { memstore, settings, log, approve, web, bili, biliHistory, balance, collect, policy, schedule, now = Date.now },
+  { memstore, settings, log, approve, web, bili, biliHistory, balance, collect, policy, schedule, agentId, now = Date.now },
 ) {
   try {
     switch (name) {
@@ -556,8 +562,29 @@ async function executeTool(
       case 'search_memory': {
         const query = String(args?.query ?? '').trim()
         if (!query) return JSON.stringify({ ok: false, error: 'query 必填' })
-        const hits = await memstore.search(query)
-        return JSON.stringify({ ok: true, query, count: hits.length, hits: hits.slice(0, 20) })
+        // 2026-10-22：记忆仓 + 对话仓一起搜。
+        //   记忆仓排前面 —— 那是她自己写下的结论，比一段二手原话更可能是她要的。
+        //   对话仓失败绝不连累记忆仓（一个坏文件不该让整个检索报错）。
+        //   ★ agentId 必须从 **参数** 拿：executeTool 是模块级函数，没有 this。
+        //     这里曾经写成 `this.agentId`（= undefined），前缀变成
+        //     `conversation:local-undefined` ⇒ 一条都搜不到且不报错，只是安静地少一半结果。
+        const fileHits = (await memstore.search(query)).slice(0, 12)
+        let talkHits = []
+        try {
+          if (agentId) talkHits = searchConversations(agentId, query, { limit: 8 })
+        } catch (err) {
+          log(`[brain] 对话仓检索失败（记忆仓结果照常返回）：${err.message}`)
+        }
+        const hits = [...fileHits.map((h) => ({ source: 'memory', ...h })), ...talkHits]
+        return JSON.stringify({
+          ok: true,
+          query,
+          count: hits.length,
+          hits,
+          ...(hits.length === 0
+            ? { hint: '两个仓都没命中。换个更具体的词（人名/地名/物件名/原话里的某个词）再查一次，别直接说「我不记得」。' }
+            : {}),
+        })
       }
       case 'append_journal': {
         const text = String(args?.text ?? '').trim()
@@ -917,6 +944,13 @@ class Brain {
     /** 赞 / 币 / 藏的执行器（宿主注入，和抽屉按钮共用同一份实现）。 */
     biliAct = null,
     balance = null,
+    /**
+     * 嗓子状态（宿主注入）：每轮给她一行「我这轮到底有没有出声」。
+     * ★ 2026-10-22 用户报：她不知道自己有没有嗓子 —— 语音是宿主念的、
+     *   合成结果不回模型、失败只写日志，于是她默认「我说的话他当然听见了」。
+     *   形状：`{ turnLine(): string|Promise<string> }`，没有就当她没这条通道。
+     */
+    voice = null,
     policy = null,
     schedule = null,
     now = Date.now,
@@ -942,6 +976,7 @@ class Brain {
     this.biliHistory = biliHistory
     this.biliAct = biliAct
     this.balance = balance
+    this.voice = voice
     this.policy = policy
     this.schedule = schedule
     this.now = now
@@ -1130,6 +1165,15 @@ class Brain {
       } catch (err) {
         this.log(`[balance] 本轮取余额失败（不影响对话）：${err.message}`)
       }
+      // 嗓子：每轮告诉她「这轮说的话会不会真的出声、上一句有没有念失败」。
+      // ★ 她不知道有嗓子不是心理问题，是信息问题：合成在宿主侧、结果不回模型、
+      //   失败只进日志。不给这行，她只能默认「他当然听见了」。
+      let voiceLine = ''
+      try {
+        if (this.voice) voiceLine = String((await this.voice.turnLine()) || '')
+      } catch (err) {
+        this.log(`[voice] 本轮取语音状态失败（不影响对话）：${err.message}`)
+      }
       const baseTailParts = [
         String(userText ?? '').trim(),
         String(extraTail ?? '').trim(),
@@ -1137,6 +1181,7 @@ class Brain {
         // 放尾部而不是 system —— system 要字节稳定（I3），时间每轮都变。
         `（现在是 ${describeNow(this.now())}）`,
         balanceLine.trim(),
+        voiceLine.trim(),
         drift.text.trim(),
       ].filter(Boolean)
       let recallText = ''
@@ -1195,6 +1240,8 @@ class Brain {
 
       // ── 工具循环 ──
       let assistantText = ''
+      // 最后一轮的 finish_reason（llm.mjs:231 已经产出，此前无人消费 → 空正文回合无从查证）
+      let lastStopReason = null
       // 工具抓到的图（bili_watch 的关键帧）攒在这里，循环里合成一条带图 user 消息喂回去。
       const imageSink = { images: [], sent: false }
       // promptTokens 是**各轮相加**（每个工具轮都是一次真实计费请求），firstTokenMs 只取首轮
@@ -1221,6 +1268,9 @@ class Brain {
               args: event.args,
             })
           } else if (event.type === 'done') {
+            // ★ 2026-10-22：stopReason 必须往上带。之前这里只取 usage，导致「模型想了 1810 token
+            //   却一个字没说」的回合在日志里只剩「思考==输出」这一个巧合可辨认。
+            if (event.stopReason) lastStopReason = event.stopReason
             const u = event.usage
             if (u) {
               totalUsage.rounds += 1
@@ -1272,6 +1322,8 @@ class Brain {
             collect: imageSink,
             policy: this.policy,
             schedule: this.schedule,
+            // ★ 检索要按 agent 分仓（对话目录名里有 agentId），必须真传下去
+            agentId: this.agentId,
             now: this.now,
           })
           let parsed = null
@@ -1288,7 +1340,7 @@ class Brain {
         }
 
         // ★ 工具抓到的图片要真进模型的眼睛：工具结果只能是字符串，图只能挂在 user 消息上。
-        //   一回合最多一次、最多 8 张 —— 否则模型会一直「再抽几帧」，把上下文灌爆（钱也是这么烧的）。
+        //   一回合最多一次、最多 MAX_TOOL_IMAGES 张 —— 否则模型会一直「再抽几帧」，把上下文灌爆（钱也是这么烧的）。
         if (imageSink.images.length > 0 && !imageSink.sent) {
           const pics = imageSink.images.slice(0, MAX_TOOL_IMAGES)
           imageSink.sent = true
@@ -1311,16 +1363,39 @@ class Brain {
         roundReasoning = ''
       }
 
-      if (assistantText.trim()) {
+      // ★ 2026-10-22 补：空正文也要落账（此前整轮静默丢弃）。
+      //   实测一次「思考=1810 / 输出=1810」的回合：completion 预算全烧在 reasoning 上，
+      //   content 一个 token 都没有。旧代码 `if (assistantText.trim())` 直接把这一轮扔掉，
+      //   后果三层：① 球窗口什么都没有，用户只看到「思考了 11 秒」；
+      //   ② messages.jsonl 停在 user 那条，下一轮模型看到「他连说两句、我没回」，上下文错位；
+      //   ③ 零痕迹可查。
+      //   现在：落一条带占位正文的 assistant 记录（保住 user/assistant 交替），
+      //   并往 UI 推一条 notice，让失败看得见。
+      const emptyContent = assistantText.trim() === ''
+      if (!emptyContent) {
         this.sessionStore.appendMessage(sessionId, {
           role: 'assistant',
           text: assistantText,
           usage: totalUsage,
         })
+      } else {
+        const why = lastStopReason ? `finish_reason=${lastStopReason}` : 'finish_reason 未知'
+        const note = `（这一轮我只想了没说话，正文是空的：${why}。）`
+        this.log(`[brain] 空正文回合 ${sessionId} 思考=${totalUsage.reasoningTokens} 输出=${totalUsage.completionTokens} ${why}`)
+        try {
+          this.sessionStore.appendMessage(sessionId, {
+            role: 'assistant',
+            text: note,
+            usage: totalUsage,
+          })
+        } catch (err) {
+          this.log(`[brain] 空正文回合落盘失败: ${err.message}`)
+        }
+        yield { type: 'notice', text: note }
       }
 
       yield { type: 'usage', usage: totalUsage }
-      yield { type: 'done', usage: totalUsage, sessionId, promptHash: snap.hash }
+      yield { type: 'done', usage: totalUsage, sessionId, promptHash: snap.hash, stopReason: lastStopReason, emptyContent }
     } finally {
       // ★ I5：回合结束只有这一个出口。无论正常结束、抛错、还是被 abort，都要通知宿主。
       if (this.onTurnIdle) {

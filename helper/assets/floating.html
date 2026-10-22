@@ -8,8 +8,15 @@
          少了它，Chromium 会拒绝加载 → <img> 回落显示 alt 文字（截图里那个「image」字样）。
          实测证据：probe/csp-blob-check.cjs 输出
          "Loading the image 'blob:file:///...' violates the following Content Security Policy
-          directive: \"img-src 'self' data:\". The action has been blocked." -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' dsh-app://app; img-src 'self' data: blob:; frame-src dsh-app://app">
+          directive: \"img-src 'self' data:\". The action has been blocked."
+
+         ★ 2026-10-22 补 `media-src 'self' blob: data:` —— 语音播报的前提。
+           播报的音频是主进程合成 → base64 过 IPC → 渲染层 `new Blob()` →
+           `URL.createObjectURL()` 得到一个 blob: URL 再喂给 `new Audio()`。
+           **没有 media-src 这一条，`<audio>`/Audio 的 blob: 源会被 CSP 直接拦掉**，
+           现象是「合成日志有、开关是开的、就是没声音」，而且 console 里只有一条
+           media-src 违规 —— 完全不提「语音」两个字，极难归因。 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' dsh-app://app; img-src 'self' data: blob:; media-src 'self' blob: data:; frame-src dsh-app://app">
     <title id="page-title"></title>
     <link rel="stylesheet" href="theme.css">
     <link rel="stylesheet" href="floating.css">
@@ -236,7 +243,23 @@
           <button id="api-config-close" type="button" aria-label="关闭"></button>
         </header>
         <p id="api-config-note" class="api-config-note" role="status" hidden></p>
-        <p id="api-group-model" class="api-group-title"></p>
+        <!-- ── 分组折叠（2026-10-22）──────────────────────────────────────
+             用户报「微信设置压根没出现在设置页」。真相是它在，但 `#api-config`
+             可视高只有 440px、内容 1130px，微信标题落在折叠线以下 113px，
+             加上暗色下滚动条几乎看不见 ⇒ 用户以为没有这个功能。
+             改成「一组一个可折叠块」，默认**三组全收起** —— 试过只展开第一组，
+             那张 6 个字段的表仍把微信挤到折叠线以下 71px，还是看不见。
+             收起靠标题右侧的徽标保证「不点开也知道现在什么状态」
+             （当前模型 / 未连接 / 未登录）。
+             ⚠️ `.api-group-body` 有 display 规则，所以 **必须**另写
+                `.api-group-body[hidden]{display:none}`（UA 的 [hidden] 权重极低）。 -->
+        <section class="api-group" data-group="model">
+          <button class="api-group-head" type="button" data-group-toggle="model" aria-expanded="false">
+            <span id="api-group-model" class="api-group-title"></span>
+            <span id="api-group-model-badge" class="api-group-badge"></span>
+            <span class="api-group-caret" aria-hidden="true"></span>
+          </button>
+          <div class="api-group-body" data-group-body="model" hidden>
         <label class="api-field">
           <span id="api-provider-label"></span>
           <input id="api-provider" type="text" readonly tabindex="-1">
@@ -279,8 +302,29 @@
             <option value="max"></option>
           </select>
         </label>
-        <!-- 微信（用户 m03985-C：把独立微信面板整段搬进来）。 -->
-        <p id="api-group-wechat" class="api-group-title"></p>
+          </div>
+        </section>
+
+        <!-- 微信（用户 m03985-C：把独立微信面板整段搬进来）。
+             ★ 2026-10-22：加「扫码配对」——开源版默认用户没装 DSH，
+               原来 token 只能从 `~/.dsh/omni-bridge-config.json` 迁过来，
+               对他们等于无解。现在这条路内置了（src/wechat-pair.mjs）。 -->
+        <section class="api-group" data-group="wechat">
+          <button class="api-group-head" type="button" data-group-toggle="wechat" aria-expanded="false">
+            <span id="api-group-wechat" class="api-group-title"></span>
+            <span id="api-wechat-badge" class="api-group-badge"></span>
+            <span class="api-group-caret" aria-hidden="true"></span>
+          </button>
+          <div class="api-group-body" data-group-body="wechat" hidden>
+            <p id="api-wechat-lead" class="api-group-hint"></p>
+            <div class="api-pair">
+              <p id="api-wechat-account" class="api-pair-account"></p>
+              <div id="api-wechat-qr" class="api-pair-qr" hidden></div>
+              <p id="api-wechat-pair-hint" class="api-pair-hint" role="status"></p>
+              <div class="api-pair-actions">
+                <button id="api-wechat-pair" type="button"></button>
+              </div>
+            </div>
         <label class="api-field">
           <span id="api-wechat-enabled-label"></span>
           <select id="api-wechat-enabled">
@@ -299,9 +343,18 @@
           <span id="api-wechat-base-url-label"></span>
           <input id="api-wechat-base-url" type="text" autocomplete="off" spellcheck="false">
         </label>
+          </div>
+        </section>
+
         <!-- B 站（2026-10-21）：只做扫码登录，扫码成功后 cookie 落在 data/bili-auth.json，
              「认真看」取帧时由主进程读它拼 Cookie 头。二维码是 src/qr.mjs 现画的 SVG。 -->
-        <p id="api-group-bili" class="api-group-title"></p>
+        <section class="api-group" data-group="bili">
+          <button class="api-group-head" type="button" data-group-toggle="bili" aria-expanded="false">
+            <span id="api-group-bili" class="api-group-title"></span>
+            <span id="api-bili-badge" class="api-group-badge"></span>
+            <span class="api-group-caret" aria-hidden="true"></span>
+          </button>
+          <div class="api-group-body" data-group-body="bili" hidden>
         <div class="api-bili">
           <p id="api-bili-account" class="api-bili-account"></p>
           <div id="api-bili-qr" class="api-bili-qr" hidden></div>
@@ -311,6 +364,96 @@
             <button id="api-bili-logout" type="button"></button>
           </div>
         </div>
+          </div>
+        </section>
+        <!-- 语音播报（2026-10-22）：第四组。
+             为什么单独一组而不是塞进「模型与密钥」：它是**另一个服务商、另一份密钥**
+             （`<ORB_DATA>/providers/tts.json`，与模型那份 auth.json 不同源），
+             混在一起会让人以为「填了模型 key 就能说话」。
+             ★ 两组字段（火山 / OpenAI 兼容）同时存在，靠 data-tts-for 切换显隐 ——
+               provider 一变就切，页面上永远只出现当前 provider 需要的格子。
+             ★ 文案与显隐逻辑全在 api-config.js，这里不放中文字面量。 -->
+        <section class="api-group" data-group="speech">
+          <button class="api-group-head" type="button" data-group-toggle="speech" aria-expanded="false">
+            <span id="api-group-speech" class="api-group-title"></span>
+            <span id="api-speech-badge" class="api-group-badge"></span>
+            <span class="api-group-caret" aria-hidden="true"></span>
+          </button>
+          <div class="api-group-body" data-group-body="speech" hidden>
+            <p id="api-speech-lead" class="api-group-hint"></p>
+            <label class="api-field">
+              <span id="api-speech-enabled-label"></span>
+              <select id="api-speech-enabled">
+                <option value="off"></option>
+                <option value="on"></option>
+              </select>
+            </label>
+            <label class="api-field">
+              <span id="api-speech-provider-label"></span>
+              <select id="api-speech-provider"></select>
+            </label>
+
+            <!-- 火山（豆包语音）：三件套 + 音色。只有 apiKey 也能通（单 key 通道），
+                 所以 App ID / Access Key 那两格标注「双头通道才要填」。 -->
+            <div data-tts-for="volcano">
+              <label class="api-field">
+                <span id="api-speech-volcano-key-label"></span>
+                <span class="api-key-row">
+                  <input id="api-speech-volcano-key" type="password" autocomplete="off" spellcheck="false">
+                  <button id="api-speech-volcano-key-reveal" type="button" aria-pressed="false"></button>
+                </span>
+              </label>
+              <label class="api-field">
+                <span id="api-speech-speaker-label"></span>
+                <input id="api-speech-speaker" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="api-field">
+                <span id="api-speech-volcano-app-id-label"></span>
+                <input id="api-speech-volcano-app-id" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="api-field">
+                <span id="api-speech-volcano-access-key-label"></span>
+                <span class="api-key-row">
+                  <input id="api-speech-volcano-access-key" type="password" autocomplete="off" spellcheck="false">
+                  <button id="api-speech-volcano-access-key-reveal" type="button" aria-pressed="false"></button>
+                </span>
+              </label>
+              <p id="api-speech-speaker-hint" class="api-group-hint"></p>
+            </div>
+
+            <!-- OpenAI 兼容：任何 /v1/audio/speech 网关（聚合站、自建、别家的兼容模式）。
+                 开源出去要接别家语音，改的通常就是这一组。 -->
+            <div data-tts-for="openai" hidden>
+              <label class="api-field">
+                <span id="api-speech-base-url-label"></span>
+                <input id="api-speech-base-url" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="api-field">
+                <span id="api-speech-model-label"></span>
+                <input id="api-speech-model" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="api-field">
+                <span id="api-speech-voice-label"></span>
+                <input id="api-speech-voice" type="text" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="api-field">
+                <span id="api-speech-openai-key-label"></span>
+                <span class="api-key-row">
+                  <input id="api-speech-openai-key" type="password" autocomplete="off" spellcheck="false">
+                  <button id="api-speech-openai-key-reveal" type="button" aria-pressed="false"></button>
+                </span>
+              </label>
+            </div>
+
+            <p id="api-speech-variant" class="api-group-hint"></p>
+            <p id="api-speech-hint" class="api-group-hint"></p>
+            <div class="api-bili-actions">
+              <button id="api-speech-test" type="button"></button>
+            </div>
+            <p id="api-speech-status" class="api-config-status" role="status" hidden></p>
+          </div>
+        </section>
+
         <div class="api-paths">
           <p id="api-paths-label"></p>
           <pre id="api-paths-value"></pre>
@@ -394,16 +537,32 @@
       </form>
       <!-- 情绪装饰区域（deco-lane）：面板底部专门区域。
            左侧 reasoning-lane：可滚动，显示思考过程/工具调用/状态文字。
-           右侧：GIF。与对话文字渲染层独立，不遮挡文字。 -->
+           右侧：GIF。与对话文字渲染层独立，不遮挡文字。
+           ★ 2026-10-22 新增 #speech-toggle（语音播报开关）：放在她的表情 GIF
+             **左边一格**，就是用户说的「在它头像旁边」。收起态跟着面板一起消失，
+             所以不需要额外的显示条件 —— 面板没展开时本来也没地方放按钮。
+           ⚠️ 父层 `#deco-lane` 是 `pointer-events:none`（它整片盖在面板底部，
+             不关掉会把正文的点击全吃掉），所以这颗按钮**必须自己把 pointer-events
+             打开**，否则看起来在那儿、点下去毫无反应。 -->
       <div id="deco-lane">
         <div id="reasoning-lane">
           <p id="status" role="status"></p>
         </div>
+        <button id="speech-toggle" type="button" aria-pressed="false" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M4 6.2h1.9L9 3.6v8.8L5.9 9.8H4a.9.9 0 0 1-.9-.9V7.1a.9.9 0 0 1 .9-.9Z"
+                  fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path>
+            <path class="wave" d="M11.3 5.6a3.2 3.2 0 0 1 0 4.8" fill="none"
+                  stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path>
+            <path class="slash" d="M3 3l10 10" fill="none" stroke="currentColor"
+                  stroke-width="1.4" stroke-linecap="round"></path>
+          </svg>
+        </button>
         <img id="deco" alt="" draggable="false" hidden>
       </div>
     </section>
     <button id="ball" type="button">
-      <img id="ball-gif" src="orb-idle.gif" alt="" draggable="false">
+      <img id="ball-gif" src="avatars/orb-A.gif" alt="" draggable="false">
     </button>
     <button id="dock-tab" type="button" hidden aria-hidden="true"></button>
     <button id="stop" type="button" hidden></button>

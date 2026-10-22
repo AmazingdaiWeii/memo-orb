@@ -489,18 +489,17 @@ function center(bounds) {
 /**
  * 预设头像。
  *
- * ★ 开源版**只带一张示例**（`orb-idle.gif`，本项目自绘/生成，替换掉原先未获授权的素材）。
+ * ★ 开源版**自带 3 张自制球形态**（`avatars/orb-A.gif` 为默认、`avatars/orb-idle.gif`、`avatars/orb-pat.gif`）。
  *   想换成自己的：把 gif 直接丢进 `helper/assets/avatars/`，环菜单会自动出现
- *   （文件名必须是**全小写**英文/数字/下划线/连字符 + `.gif`，见下面 PRESET_SRC）。
- *   详见 docs/素材说明_开源版_2026-10-21.md
+ *   （文件名用英文/数字/下划线/连字符 + `.gif`，**大小写都行**，见下面 PRESET_SRC）。
  */
 const AVATAR_PRESETS = [
 	{
-		src: "orb-idle.gif",
-		name: "示例（可换）"
+		src: "avatars/orb-A.gif",
+		name: "orb-A（默认）"
 	}
 ];
-const PRESET_SRC = /^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9_-]+)*\.gif$/;
+const PRESET_SRC = /^[A-Za-z0-9][A-Za-z0-9_-]*(?:\/[A-Za-z0-9_-]+)*\.gif$/;
 function isSafePresetSrc(src) {
 	return PRESET_SRC.test(src);
 }
@@ -1767,7 +1766,7 @@ ipcMain.handle("orb:avatars", (event) => {
 	try {
 		const dir = join(PROJECT_ROOT, "helper", "assets", "avatars");
 		for (const file of readdirSync(dir)) {
-			if (!/^[a-z0-9][a-z0-9_-]*\.gif$/.test(file)) continue;
+			if (!/^[A-Za-z0-9][A-Za-z0-9_-]*\.gif$/.test(file)) continue;
 			const src = `avatars/${file}`;
 			if (list.some((item) => item.src === src)) continue;
 			list.push({ src, name: file.slice(0, -4) });
@@ -2158,6 +2157,46 @@ function deliver(message) {
 				? Math.min(1, Math.max(0, record.opacity))
 				: 0.65,
 			speed: typeof record.speed === "string" ? record.speed : "1x",
+		});
+		return;
+	}
+	// ── 语音播报（2026-10-22）────────────────────────────────────────
+	// 三条都要有**显式分支**。dispatchRecord 是一串 if，落不到任何分支就静默丢弃
+	// —— 这个坑在 deco / lock 上已经踩过两次，症状全是「host 日志写着已推送、
+	//    球侧毫无反应、零异常」。加协议类型必须配分支，这条是硬规矩。
+	//
+	// `speech` 里带着音频字节（base64），不落盘、不进任何缓存，
+	// 渲染层转 Blob 播完就 revoke。
+	if (record.type === "speech") {
+		if (typeof record.audio !== "string" || record.audio === "") return;
+		win.webContents.send("orb:speech", {
+			gen: typeof record.gen === "number" ? record.gen : 0,
+			seq: typeof record.seq === "number" ? record.seq : 0,
+			mime: typeof record.mime === "string" && record.mime ? record.mime : "audio/mpeg",
+			audio: record.audio,
+			chars: typeof record.chars === "number" ? record.chars : 0,
+			ms: typeof record.ms === "number" ? record.ms : 0,
+			preview: record.preview === true,
+		});
+		return;
+	}
+	if (record.type === "speech-stop") {
+		win.webContents.send("orb:speech-stop", {
+			gen: typeof record.gen === "number" ? record.gen : 0,
+			reason: typeof record.reason === "string" ? record.reason : "",
+		});
+		return;
+	}
+	if (record.type === "speech-state") {
+		win.webContents.send("orb:speech-state", {
+			enabled: record.enabled === true,
+			ready: record.ready === true,
+			provider: typeof record.provider === "string" ? record.provider : "",
+			providerLabel: typeof record.providerLabel === "string" ? record.providerLabel : "",
+			variant: typeof record.variant === "string" ? record.variant : "",
+			speaker: typeof record.speaker === "string" ? record.speaker : "",
+			description: typeof record.description === "string" ? record.description : "",
+			lastError: typeof record.lastError === "string" ? record.lastError : "",
 		});
 		return;
 	}
@@ -2553,7 +2592,7 @@ function screenPointOf(window) {
 */
 const TRAY_ICON_SIZE = 16;
 /** 自带默认头像（与 AVATAR_PRESETS[0] 同一份、也是渲染层 default 用的那张）。 */
-const DEFAULT_AVATAR_SRC = "orb-idle.gif";
+const DEFAULT_AVATAR_SRC = "avatars/orb-A.gif";
 /** 头像素材在磁盘上的绝对路径。 */
 function avatarFilePath(src) {
 	return join(PROJECT_ROOT, "helper", "assets", src);
@@ -2574,6 +2613,42 @@ const TRAY_FALLBACK_PNG =
 	"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAZ0lEQVR42mNgoDbQ9prHAsSpQLwS" +
 	"iM9A8UqoGAshzS5QDf9xYJCcCz7NH/BohuEPGIZAnX2GCM3ILmFBNiCVBM0wnIpswEoyDFiJbMAZ" +
 	"Mgw4Q1UDKPYCxYFIWTRSnJCokpSpkpnIAQCyWkuM40WibQAAAABJRU5ErkJggg==";
+/**
+* 固定托盘图标：`helper/assets/tray.ico`（多尺寸 16/20/24/32/48/64/128/256，一张文件系统自己挑）。
+*
+* ★ 2026-10-22 用户换图：托盘原来跟「球当前头像」走 —— 换头像托盘也换，
+*   好处是形象一致，坏处是托盘上出现的是**球形态素材**而不是这个项目的标识。
+*   现在改为固定图标，头像再怎么换托盘都不动；`.ico` 里带多尺寸，托盘在
+*   不同 DPI 下取不同尺寸，不会像单张 PNG 那样被拉糊。
+*
+*   素材由 `tools/make_tray_icon.py` 从一张圆形徽章图生成（裁圆形 + 外部透明），
+*   换图不要手改这里，重跑那个脚本即可。
+*   文件缺失 / 解不出来时**退回下面那张蓝点兜底图**（不抛错、不影响启动）。
+*/
+const TRAY_ICON_FILE = join(PROJECT_ROOT, "helper", "assets", "tray.ico");
+/**
+* 固定图标的候选文件，**按优先级**：先 `.ico`（内含 16/20/24/32/48/64/128/256 多尺寸，
+* 系统按 DPI 自己挑，16px 那档是专门画过的，不会糊），再退 `.png`（单张 256）。
+* 为什么不一上来就用 png：256 缩到 16 是「缩出来的」，细描边会灰掉一圈。
+* 为什么 .ico 可能解不出来还要留它在前：`nativeImage.createFromPath` 官方只保证
+* PNG/JPEG，.ico 在某些 Electron 版本上返回空图 —— 所以两条都要能被尝试。
+*/
+const TRAY_ICON_CANDIDATES = [TRAY_ICON_FILE, join(PROJECT_ROOT, "helper", "assets", "tray.png")];
+/** 取固定托盘图标；候选项都没有或全是坏图时返回 null（调用方自己退到兜底）。 */
+function loadFixedTrayImage() {
+	for (const file of TRAY_ICON_CANDIDATES) {
+		try {
+			if (!existsSync(file)) continue;
+			const image = nativeImage.createFromPath(file);
+			if (image && !image.isEmpty()) return image;
+			console.error(`dsh-orb helper: ${file} 解不出位图（空图），试下一个`);
+		} catch (err$1) {
+			console.error(`dsh-orb helper: 读取 ${file} 失败，试下一个`, err$1);
+		}
+	}
+	console.error("dsh-orb helper: 没有可用的固定托盘图标，退回兜底蓝点");
+	return null;
+}
 /**
 * 托盘菜单。
 *
@@ -2664,7 +2739,15 @@ function applyTrayImage(image) {
 * `trayIconToken` 保证「快切多次只认最后一次」，避免旧图后到覆盖新图。
 */
 function refreshTrayIcon(src) {
-	if (!tray || tray.isDestroyed() || !win) return;
+	if (!tray || tray.isDestroyed()) return;
+	// ★ 有固定托盘图标时，头像怎么换托盘都不动 —— 同 TRAY_ICON_FILE 的注释。
+	//   这条要在 `!win` 判空之前：固定图标不依赖渲染层，球页没装好也该能贴上。
+	const fixed = loadFixedTrayImage();
+	if (fixed) {
+		applyTrayImage(fixed);
+		return;
+	}
+	if (!win) return;
 	const tokenId = ++trayIconToken;
 	const target = src || DEFAULT_AVATAR_SRC;
 	// 渲染层的浮动页知道怎么把预设路径变成一个可画的 URL；data URL 直接给。
@@ -2686,9 +2769,9 @@ function refreshTrayIcon(src) {
 /** 创建托盘。必须在 app.whenReady() 之后调用（Tray 依赖 GUI 就绪）。 */
 function createTray() {
 	if (tray && !tray.isDestroyed()) return tray;
-	// 先用兜底图建出来 —— 保证「托盘一定存在」，
-	// 真头像等渲染层装好后再换上（did-finish-load 里会 refresh）。
-	const initial = trayImageFromDataUrl(TRAY_FALLBACK_PNG);
+	// 先用固定图标（或兜底图）建出来 —— 保证「托盘一定存在」。
+	// 固定图标缺失时才退回旧逻辑：等渲染层装好后用头像换（did-finish-load 里会 refresh）。
+	const initial = loadFixedTrayImage() ?? trayImageFromDataUrl(TRAY_FALLBACK_PNG);
 	if (!initial) {
 		// ★ 这里绝不能静默：兜底图若又变回坏 base64，托盘会整个消失，
 		//   而症状只是「任务栏里少了个图标」，没有任何异常。
@@ -3181,7 +3264,7 @@ ipcMain.handle("orb:bg-get", () => backgroundsSnapshot());
  *
  * 之前根本不传 defaultPath —— Electron 会退回它自己的记忆目录（往往是系统目录或
  * 上次用过的别处），对着一个空目录找图很别扭。现在：
- *   第一次（没存过）→ 项目根 `E:\Memo orb`；
+ *   第一次（没存过）→ 项目根（orb 安装目录）；
  *   选过一次之后   → 记住那个文件所在的目录，下次直接落在那儿。
  * 落在 `logs/window-state.json` 的 `bgLastDir`，跟窗口尺寸/头像/透明度同一份文件。
  */

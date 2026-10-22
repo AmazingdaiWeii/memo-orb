@@ -161,8 +161,29 @@ const zh = {
   apiEffortUltra: '极高',
   apiEffortMax: '最高（max，缺省）',
   apiGroupWechat: '微信',
+  // ── 扫码配对（2026-10-22）──
+  // 开源版默认用户没装 DSH，token 不会自己出现在盘上。这一组文案就是
+  // 「怎么拿到 token」的答案：不解释协议、不提 DSH，只说「扫码」。
+  apiWechatLead: '第一次用：点下面的「扫码配对」，用手机微信扫一下，这台电脑就连上你的微信了。',
+  apiWechatPair: '扫码配对',
+  apiWechatRepair: '重新扫码',
+  apiWechatNotPaired: '还没配对',
+  apiWechatPaired: '已配对',
+  apiWechatBadgeOn: '已连接',
+  apiWechatBadgeOff: '未连接',
+  // 有凭据但开关是关的（2026-10-22）：以前这里也写「已连接」，等于谎报
+  apiWechatBadgePairedOff: '已配对 · 未启用',
+  apiWechatPairOff: 'token 还在，但「微信桥」开关是关的 —— 打开开关才会收发消息。',
+  apiWechatNeedPair: '扫一次码就行，不用自己去哪儿申请 token。',
+  apiWechatReady: '配对好了。手机微信里找到这个机器人，直接说话就行。',
+  apiWechatWaitScan: '用手机微信扫码',
+  apiWechatScanned: '扫到了，在手机上点「确认」',
+  apiWechatExpired: '二维码过期了，点「重新扫码」再来一次',
+  apiWechatPairFailed: '配对失败：',
+  apiWechatPairing: '正在取二维码…',
+  apiWechatPairingOk: '配对成功 ✓',
   apiWechatEnabled: '微信桥',
-  apiWechatToken: '微信 bot token',
+  apiWechatToken: '微信 bot token（扫码配对后自动填）',
   apiWechatBaseUrl: '微信接口地址',
   // ── B 站扫码登录（2026-10-21）──
   apiGroupBili: 'B 站',
@@ -178,6 +199,35 @@ const zh = {
   apiBiliFailed: '扫码失败：',
   apiBiliExpires: '有效期至',
   apiBiliUnknownUser: '（B 站账号）',
+  apiBiliBadgeOn: '已登录',
+  apiBiliBadgeOff: '未登录',
+  // ── 语音播报（2026-10-22）──
+  // 只列**通用**说法：不写死火山的字段名，改 provider 的人不用改文案。
+  // 火山那三格（App ID / Access Key / 音色 ID）在表单里各有自己的标签。
+  apiGroupSpeech: '语音播报',
+  speechOn: '语音播报：开',
+  speechOff: '语音播报：关',
+  speechNeedConfig: '还没配语音，去「设置 → 语音播报」里填一下',
+  apiSpeechLead: '打开以后，她说完的话会用语音念出来。音频只在内存里走一趟，不落盘、不留文件。',
+  apiSpeechEnabled: '语音播报',
+  apiSpeechProvider: '服务商',
+  apiSpeechVolcanoKey: 'API Key',
+  apiSpeechVolcanoAppId: 'App ID（双头通道才要填）',
+  apiSpeechVolcanoAccessKey: 'Access Key（双头通道才要填）',
+  apiSpeechSpeaker: '音色 ID',
+  // ⚠️ 示例值故意写成假号（S_xxxxxxxxx）：这里以前手写过用户真实音色 ID，
+  //   而这个文件是要开源的 —— 音色 ID 不是密钥，但它是「她的声音」的唯一句柄，
+  //   不该跟着仓库一起发出去。以后写示例一律用占位符。
+  apiSpeechSpeakerHint: '声音复刻的音色 ID，形如 S_xxxxxxxxx。留空就用官方默认音色。',
+  apiSpeechVariant: '已探测的通道',
+  apiSpeechBaseUrl: '接口地址',
+  apiSpeechModel: '模型',
+  apiSpeechVoice: '音色',
+  apiSpeechTest: '试听一句',
+  apiSpeechTesting: '正在合成…',
+  apiSpeechTestOk: '合成成功，应该能听见了。',
+  apiSpeechTestFail: '试听失败：',
+  apiSpeechHintVar: '通道不用手填：第一次试听/说话时会自动探测，探到就记下来。',
   menuRename: '重命名',
   menuRenamePrompt: '给这段对话起个新名字',
   menuDelete: '删除',
@@ -400,8 +450,26 @@ const en = {
   apiEffortUltra: 'Ultra',
   apiEffortMax: 'Max (default)',
   apiGroupWechat: 'WeChat',
+  // ── QR pairing (2026-10-22) ──
+  apiWechatLead: 'First time here? Tap “Pair with QR”, scan it with WeChat on your phone, and this computer is linked.',
+  apiWechatPair: 'Pair with QR',
+  apiWechatRepair: 'Scan again',
+  apiWechatNotPaired: 'Not paired yet',
+  apiWechatPaired: 'Paired',
+  apiWechatBadgeOn: 'Connected',
+  apiWechatBadgeOff: 'Not connected',
+  apiWechatBadgePairedOff: 'Paired · off',
+  apiWechatPairOff: 'The token is there, but the bridge switch is off — nothing is sent or received until you turn it on.',
+  apiWechatNeedPair: 'One scan is all it takes — no token to hunt down.',
+  apiWechatReady: 'All set. Find the bot in WeChat and just talk to it.',
+  apiWechatWaitScan: 'Scan with WeChat on your phone',
+  apiWechatScanned: 'Scanned — confirm on your phone',
+  apiWechatExpired: 'QR code expired — tap “Scan again”',
+  apiWechatPairFailed: 'Pairing failed: ',
+  apiWechatPairing: 'Requesting a QR code…',
+  apiWechatPairingOk: 'Paired ✓',
   apiWechatEnabled: 'Bridge',
-  apiWechatToken: 'WeChat bot token',
+  apiWechatToken: 'WeChat bot token (filled by pairing)',
   apiWechatBaseUrl: 'WeChat API base URL',
   // ── Bilibili QR login (2026-10-21) ──
   apiGroupBili: 'Bilibili',
@@ -417,6 +485,30 @@ const en = {
   apiBiliFailed: 'Sign-in failed: ',
   apiBiliExpires: 'valid until',
   apiBiliUnknownUser: '(Bilibili account)',
+  apiBiliBadgeOn: 'Signed in',
+  apiBiliBadgeOff: 'Not signed in',
+  // ── Speech (2026-10-22) ──
+  apiGroupSpeech: 'Voice',
+  speechOn: 'Voice: on',
+  speechOff: 'Voice: off',
+  speechNeedConfig: 'No voice configured yet — open Settings → Voice',
+  apiSpeechLead: 'When on, her replies are spoken aloud. Audio only ever lives in memory — nothing is written to disk.',
+  apiSpeechEnabled: 'Voice playback',
+  apiSpeechProvider: 'Provider',
+  apiSpeechVolcanoKey: 'API key',
+  apiSpeechVolcanoAppId: 'App ID (dual-header channel only)',
+  apiSpeechVolcanoAccessKey: 'Access key (dual-header channel only)',
+  apiSpeechSpeaker: 'Voice ID',
+  apiSpeechSpeakerHint: 'Cloned-voice ID such as S_xxxxxxxxx. Leave blank to use the stock voice.',
+  apiSpeechVariant: 'Detected channel',
+  apiSpeechBaseUrl: 'Base URL',
+  apiSpeechModel: 'Model',
+  apiSpeechVoice: 'Voice',
+  apiSpeechTest: 'Play a sample',
+  apiSpeechTesting: 'Synthesising…',
+  apiSpeechTestOk: 'Got audio — you should hear it now.',
+  apiSpeechTestFail: 'Sample failed: ',
+  apiSpeechHintVar: 'No need to pick a channel: it is auto-detected on first use and remembered.',
   menuRename: 'Rename',
   menuRenamePrompt: 'Give this chat a new name',
   menuDelete: 'Delete',
@@ -731,6 +823,155 @@ function main() {
   }
 
   /**
+   * ═══════════════════════════════════════════════════════════════════════
+   * 语音播报 · 播放端（2026-10-22）
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * 主进程合成 → base64 过 IPC → 这里转 Blob → `new Audio(blobUrl)` → 播完 revoke。
+   *
+   * ★ **mp3 不落盘**（用户的要求：即用即抛，不然文件会越来越多）。
+   *   整条链路上 mp3 只活在三个地方：主进程的 Buffer、IPC 的字符串、这里的 Blob。
+   *   `revokeObjectURL` 一收，那份内存立刻还给系统。磁盘上永远只有一个文件
+   *   —— 用户手动跑 `probe/tts-say.mjs` 时那一个。
+   *
+   * ★ 为什么播放必须在渲染进程：主进程没有音频输出能力。Electron 的 Audio 是
+   *   DOM API，只有渲染进程有。所以分工是死的，不存在「在主进程直接放」这条路。
+   *
+   * ★ CSP 的 `media-src 'self' blob: data:` 是硬前提（floating.html:12）。
+   *   少了它，`new Audio(blobUrl)` 会被直接拦掉，而且 console 只有一条
+   *   media-src 违规，一个字都不提「语音」——极难归因，所以这里也写清楚。
+   *
+   * 队列语义：主进程已经按 seq 排好序了，这里**只保证串行播**，不再排序
+   * （排序逻辑留在一处，两处各排一次迟早会打架）。
+   */
+  const speech = {
+    /** 待播的音频包 */
+    queue: [],
+    /** 当前在播的 { el, url } */
+    current: null,
+    /** 播到一半被打断时的代（避免上一代的 onended 把新一代的状态改掉） */
+    gen: 0,
+    enabled: false,
+    ready: false,
+  }
+
+  function stopSpeechPlayback() {
+    speech.queue.length = 0
+    const cur = speech.current
+    speech.current = null
+    if (cur) {
+      try {
+        cur.el.onended = null
+        cur.el.onerror = null
+        cur.el.pause()
+        // 先断开 src 再 revoke：顺序反了在部分版本上会触发一次 error 回调
+        cur.el.removeAttribute('src')
+        cur.el.load()
+      } catch {
+        /* 元素已销毁之类，忽略 */
+      }
+      try {
+        URL.revokeObjectURL(cur.url)
+      } catch {
+        /* 已经 revoke 过，忽略 */
+      }
+    }
+  }
+
+  function pumpSpeech() {
+    if (speech.current !== null) return
+    const next = speech.queue.shift()
+    if (next === undefined) return
+
+    let url = ''
+    try {
+      const bytes = base64ToBytes(next.audio)
+      const blob = new Blob([bytes], { type: next.mime || 'audio/mpeg' })
+      url = URL.createObjectURL(blob)
+    } catch (err) {
+      console.warn('[speech] 音频解码失败', err)
+      pumpSpeech()
+      return
+    }
+
+    const el = new Audio(url)
+    el.preload = 'auto'
+    const finish = () => {
+      if (speech.current?.el !== el) return
+      speech.current = null
+      try {
+        URL.revokeObjectURL(url)
+      } catch {
+        /* ignore */
+      }
+      pumpSpeech()
+    }
+    el.onended = finish
+    el.onerror = () => {
+      console.warn('[speech] 播放失败（多半是 CSP 的 media-src 或者音频本身坏了）')
+      finish()
+    }
+    speech.current = { el, url }
+
+    // `play()` 会返回 Promise，被 autoplay 策略拦时会 reject。
+    // 主进程已经加了 `autoplay-policy=no-user-gesture-required`，
+    // 所以这里正常情况下不会 reject；万一 reject 也要把队列往下推，
+    // 否则一句放不出来就整场哑掉（这类「静默卡死」在这个项目里踩过太多次）。
+    void el.play?.().catch?.((err) => {
+      console.warn('[speech] play() 被拒绝：', err?.name || err)
+      finish()
+    })
+  }
+
+  /** base64 → Uint8Array。比 `atob` 后逐字符 charCodeAt 快，也比它省一次中间数组。 */
+  function base64ToBytes(b64) {
+    const bin = atob(String(b64 ?? ''))
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+    return out
+  }
+
+  function enqueueSpeech(payload) {
+    const audio = typeof payload?.audio === 'string' ? payload.audio : ''
+    if (audio === '') return
+    // 积压上限：主进程那边已经限了 24 句，这里再兜一层。
+    // 不兜的话，一次超长回复能把内存顶到几百 MB（每句 30~60KB，但播放慢于合成）。
+    if (speech.queue.length > 40) speech.queue.length = 0
+    speech.queue.push(payload)
+    pumpSpeech()
+  }
+
+  const speechToggleEl = document.querySelector('#speech-toggle')
+
+  /** 主进程是真源，这里只画。 */
+  function applySpeechState(payload) {
+    speech.enabled = payload?.enabled === true
+    speech.ready = payload?.ready === true
+    if (speechToggleEl === null) return
+    // 按钮常驻（收起态随面板一起藏），只在「真的没配好任何凭据」时提示去设置页。
+    speechToggleEl.hidden = false
+    speechToggleEl.setAttribute('aria-pressed', speech.enabled ? 'true' : 'false')
+    speechToggleEl.dataset.ready = speech.ready ? '1' : '0'
+    const label = speech.enabled ? messages.speechOn : messages.speechOff
+    speechToggleEl.setAttribute('aria-label', label)
+    speechToggleEl.title = speech.ready ? label : `${label} · ${messages.speechNeedConfig}`
+    // 关掉开关的瞬间就该安静 —— 不等主进程的 speech-stop 回来
+    // （那条也会来，这里是让它「立刻」静，两条路互不依赖）。
+    if (!speech.enabled) stopSpeechPlayback()
+  }
+
+  speechToggleEl?.addEventListener('click', () => {
+    if (typeof api.speechToggle !== 'function') return
+    // 没配好凭据时点它：不开开关，只提示去哪儿配 —— 否则用户会得到一个
+    // 「开关是开的、就是不出声」的死结。
+    if (!speech.ready) {
+      status.textContent = messages.speechNeedConfig
+      return
+    }
+    void api.speechToggle(!speech.enabled)
+  })
+
+  /**
    * 频率菜单的一次性回调中转。
    *
    * `contextMenu` 的 `onAction` 在**构造时**就固定了，`open()` 没法逐次覆盖
@@ -860,6 +1101,15 @@ function main() {
     biliPoll: (key) => (typeof api.biliLoginPoll === 'function' ? api.biliLoginPoll(key) : Promise.resolve(null)),
     biliLogout: () => (typeof api.biliLogout === 'function' ? api.biliLogout() : Promise.resolve(null)),
     biliStatus: (opts) => (typeof api.biliStatus === 'function' ? api.biliStatus(opts) : Promise.resolve(null)),
+    // 微信扫码配对（2026-10-22）：开源版默认用户没装 DSH，token 只能靠这一步拿到。
+    // 与 B 站扫码同一套注入式写法 —— 这里漏了，面板上表现为「按钮点了没反应」。
+    wechatPairStart: () => (typeof api.wechatPairStart === 'function' ? api.wechatPairStart() : Promise.resolve(null)),
+    wechatPairPoll: (key) => (typeof api.wechatPairPoll === 'function' ? api.wechatPairPoll(key) : Promise.resolve(null)),
+    // 语音播报（2026-10-22）：读写 + 试听都是**独立通道**（另一个文件 tts.json）。
+    // 这里漏一个的后果与 B 站那三个一样 —— 按钮点了没反应，且没有任何报错。
+    ttsGet: () => (typeof api.ttsGet === 'function' ? api.ttsGet() : Promise.resolve(null)),
+    ttsSave: (patch) => (typeof api.ttsSet === 'function' ? api.ttsSet(patch) : Promise.resolve(null)),
+    speechTest: () => (typeof api.speechTest === 'function' ? api.speechTest() : Promise.resolve(null)),
   })
 
   /**
@@ -929,7 +1179,7 @@ function main() {
   let historyOpen = false
   let pending
   let sessionId = ''
-  let avatarSrc = 'orb-idle.gif'
+  let avatarSrc = 'avatars/orb-A.gif'
   let historyItems = []
   const blocks = new Map()
   // Last message per block key: the locale refresh re-renders from it.
@@ -3782,6 +4032,12 @@ function main() {
     })
   }
   api.onTurn((turn) => { stage({ type: 'turn', ...(turn ?? {}) }) })
+  // ── 语音播报（2026-10-22）：三条都必须接。
+  //    `typeof` 守卫是给「preload 还是老版本」留的活路 —— 直接调用会在
+  //    脚本顶层抛 TypeError，整份 shell.js 不执行，界面变白（这个坑踩过）。
+  if (typeof api.onSpeech === 'function') api.onSpeech((payload) => enqueueSpeech(payload))
+  if (typeof api.onSpeechStop === 'function') api.onSpeechStop(() => stopSpeechPlayback())
+  if (typeof api.onSpeechState === 'function') api.onSpeechState((payload) => applySpeechState(payload))
   api.onSession((id) => { sessionId = typeof id === 'string' ? id : '' })
   api.onHistory((items) => {
     historyItems = Array.isArray(items) ? items : []
@@ -3901,7 +4157,7 @@ function main() {
   tccScreenOpen.addEventListener('click', () => { void openTccRight('screen') })
   tccAccessibilityOpen.addEventListener('click', () => { void openTccRight('accessibility') })
   api.onAvatar((src) => {
-    avatarSrc = typeof src === 'string' && src !== '' ? src : 'orb-idle.gif'
+    avatarSrc = typeof src === 'string' && src !== '' ? src : 'avatars/orb-A.gif'
     const gif = document.querySelector('#ball-gif')
     if (!gif) return
     delete gif.dataset.mode
@@ -3926,6 +4182,7 @@ function main() {
    */
   const TRAY_FACE_CROP = {
     // 示例素材（头肩构图，脸在中间偏上）。
+    'avatars/orb-A.gif': { cx: 0.5, cy: 0.45, s: 0.8 },
     'orb-idle.gif': { cx: 0.5, cy: 0.45, s: 0.8 },
     // ↓ 自制球形态，逐张手挑的原始值（勿随意覆盖）。
     // 换素材必须重新标定这三个数：probe/face-scan*.cjs 出候选图逐张看。
@@ -3965,7 +4222,7 @@ function main() {
         const url =
           typeof src === 'string' && src !== ''
             ? src
-            : source?.src || 'orb-idle.gif'
+            : source?.src || 'avatars/orb-A.gif'
         // 用 url 反查裁切参数：预设是相对路径（与表里的 key 对得上）；
         // data URL（用户自定义上传）与 #ball-gif 的绝对 file:// URL 都查不到 ⇒ 走兜底。
         const key = Object.keys(TRAY_FACE_CROP).find((k) => url === k || url.endsWith('/' + k))

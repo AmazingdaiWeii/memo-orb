@@ -56,6 +56,30 @@ export function humanTime(ts, now = Date.now()) {
 }
 
 /**
+ * 让一句「看画面得出的摘要」带上画面的落盘目录。
+ *
+ * 为什么要有这个函数（2026-10-22 用户定的预警）：
+ *   她**没法把图推给人看**，只能报路径。所以「画面里有个穿蓝衣服的人」这种摘要，
+ *   如果不带路径，以后既没人能复核，她自己也调不出来 —— 等于一句不可验证的断言。
+ *   靠 prompt 提醒是不够的（她整篇重写时会忘），所以在**落账这一层**补。
+ *
+ * 规则很克制，只有两条：
+ *   1. 没有 `framesDir`（这条根本没取过帧）→ 一个字都不加，别凭空造路径；
+ *   2. 摘要里已经提到这个目录 → 不重复加（她自己也写了路径的情况）。
+ *
+ * @param {string} text 概览正文
+ * @param {string} framesDir 形如 `bili/BV1xx-p1`；空串表示没画面
+ * @returns {string}
+ */
+export function ensureFramePathInSummary(text, framesDir) {
+  const s = String(text ?? '').trim()
+  const dir = String(framesDir ?? '').trim()
+  if (dir === '') return s
+  if (s.includes(dir)) return s
+  return `${s}（画面存 \`${dir}/\`）`
+}
+
+/**
  * @param {object} o
  * @param {string} o.dataRoot  `data/` 的绝对路径
  * @param {Function} [o.log]
@@ -104,6 +128,7 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
    * @param {number} [o.height]
    * @param {string} [o.account]  看的时候用的是谁的身份（uname，未登录时给空串）
    * @param {number[]} [o.frameTimes] 这次取了哪几个时间点（秒）
+   * @param {string} [o.framesDir] 这次的关键帧存在工作区的哪个目录（没取帧就给空）
    * @returns {{ok:boolean, item?:object, watches?:number, error?:string}}
    */
   function record(o = {}) {
@@ -122,7 +147,7 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
       existing.lastAt = now
       existing.watches = Number(existing.watches || 1) + 1
       // 标题/画质会变（up 主改名、开了大会员），以最新一次为准。
-      for (const k of ['title', 'pageTitle', 'duration', 'quality', 'qualityLabel', 'width', 'height', 'account', 'aid', 'page']) {
+      for (const k of ['title', 'pageTitle', 'duration', 'quality', 'qualityLabel', 'width', 'height', 'account', 'aid', 'page', 'framesDir']) {
         if (o[k] !== undefined && o[k] !== null && o[k] !== '') existing[k] = o[k]
       }
       // 时间点取并集（「上次看的是 105s，这次又看了 10s」两个都留着才有用）。
@@ -150,6 +175,10 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
       height: Number(o.height || 0),
       account: String(o.account || ''),
       frameTimes: times,
+      // ── 关键帧落在哪（2026-10-22 加）──
+      // 空串 = 这条没取过帧（只读了元信息/字幕）。非空时形如 `bili/BVxxx-p1`，
+      // 「涉及画面的摘要要带得出落盘路径」靠的就是它 —— 她报不出路径就等于没看过。
+      framesDir: String(o.framesDir || ''),
       // ── 概览：她看完之后自己写的一句「这视频大概讲了什么」（2026-10-21 加）──
       // 由主进程看完视频后调 LLM 生成（基于真实取到的关键帧），异步落盘。
       // 空串 = 还没写（老条目 / 只看了元信息没画面）。
@@ -286,10 +315,25 @@ export function createBiliHistory({ dataRoot, log = () => {} } = {}) {
    *
    * 与 liked 那两段话不同：概览是**看完画面之后**对内容的客观描述，
    * 「为什么喜欢」「想对作者说什么」是主观感受 —— 三个字段各管一件事，别混。
+   *
+   * ★ 2026-10-22：落账时**强制**带上关键帧的落盘目录（`ensureFramePathInSummary`）。
+   *   她没法把图推给人看，只能报路径；而一句「画面里有条鲸」如果没带路径，
+   *   以后没人能复核、她自己也调不出来。这件事不能靠 prompt 自觉 —— 写在写入端，
+   *   任何调用方（包括以后新加的）都绕不过去。
+   *
+   * @param {string} bvid
+   * @param {number} cid
+   * @param {string} text
+   * @param {{framesDir?: string}} [o] 不给就用条目上已有的
    */
-  function setSummary(bvid, cid, text) {
+  function setSummary(bvid, cid, text, { framesDir = '' } = {}) {
     return patch(bvid, cid, (it) => {
-      it.summary = String(text || '').trim().slice(0, 240)
+      const dir = String(framesDir || it.framesDir || '').trim()
+      if (dir) it.framesDir = dir
+      // 先截正文再加路径：反过来的话路径会被 240 字的刀切掉，
+      // 于是「带路径」这件事在最需要它的长摘要上恰好失效。
+      const body = String(text || '').trim().slice(0, 200)
+      it.summary = ensureFramePathInSummary(body, dir).slice(0, 400)
     })
   }
 

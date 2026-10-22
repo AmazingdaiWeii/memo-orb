@@ -921,7 +921,10 @@ body.history-open #lock-gate {
   left: 16px;
   top: 4px;
   bottom: 4px;
-  width: calc(100% - var(--deco-size) - 32px);
+  /* ★ 2026-10-22：右侧要给语音开关让出 30px（原来只让 GIF 的宽度）。
+     这里的算式与下面 `#speech-toggle` 的 `right` 是**一对**，改一处必须同步改另一处，
+     否则两个元素会叠在一起 —— 叠起来时按钮在 GIF 下面，看起来就是「按钮消失了」。 */
+  width: calc(100% - var(--deco-size) - 62px);
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 2;
@@ -1078,6 +1081,115 @@ body.expand-down #deco-lane {
 /* 收起态随面板一起消失（#panel opacity:0）。这里再兜一层，
    防止将来有人给 #deco 加了 transform/filter 之类创建独立层叠上下文。 */
 body:not(.expanded) #deco {
+  opacity: 0;
+}
+
+/* ── 语音播报开关（2026-10-22）─────────────────────────────────────────
+ *
+ * 位置：她表情 GIF 的左边一格 —— 用户原话是「在它头像旁边」。
+ * `right` 与 `#reasoning-lane` 的宽度是**一对**算式（见那边的注释）。
+ *
+ * ⚠️ 三个必须写死的点：
+ *   1. `pointer-events: auto` —— 父层 `#deco-lane` 是 none，
+ *      不恢复的话按钮「看得见、点不动」，而且没有任何报错。
+ *   2. `[hidden] { display: none }` —— 这里用了 display:grid 居中图标，
+ *      UA 的 `[hidden]` 权重极低，会被 `display:grid` 压过 ⇒ 恒显示。
+ *      这个项目的铁律：凡写过 display:flex/grid 的元素都要另补这条。
+ *   3. `z-index: 3` —— 要压在 `#deco`(1) 和 reasoning-lane(2) 之上。
+ *
+ * 三态靠 `aria-pressed` + `data-ready` 表达，不另加 class：
+ *   关 = 灰 + 划掉的斜线；开 = 亮 + 声波弧；没配好 = 整体半透明（点了会提示去设置页）。
+ */
+#speech-toggle {
+  position: absolute;
+  z-index: 3;
+  right: calc(var(--deco-size) + 16px);
+  bottom: 14px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--white) 82%, transparent);
+  color: var(--pin);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+
+#speech-toggle[hidden] {
+  display: none;
+}
+
+#speech-toggle svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+/* 关着：斜线出现，声波隐藏 */
+#speech-toggle .slash {
+  opacity: 1;
+}
+
+#speech-toggle .wave {
+  opacity: 0;
+}
+
+/* 开着：斜线消失、声波出现、边框提亮 */
+#speech-toggle[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+#speech-toggle[aria-pressed='true'] .slash {
+  opacity: 0;
+}
+
+#speech-toggle[aria-pressed='true'] .wave {
+  opacity: 1;
+}
+
+/* 没配好凭据：按钮仍然在（否则用户找不到入口），但看着就是「还不能用」 */
+#speech-toggle[data-ready='0'] {
+  opacity: 0.42;
+}
+
+#speech-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#speech-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 暗色主题下的覆盖。
+ *
+ * ⚠️⚠️ 本文件的 `--white` / `--black` 表达的是**角色，不是颜色本身**：
+ *     `:root` 里 `--white: #ffffff`（背景/表面）、`--black: #111111`（前景/文字），
+ *     而 `body[data-ds-dark-theme]` 里两个值**互换**（`--white: rgb(21,21,23)` 近黑、
+ *     `--black: rgb(249,250,251)` 近白），这样所有用语义变量写的规则能自动跟着主题翻面。
+ *
+ *     ⇒ **在这里拿 `--black` 当背景色，就是在暗色下刷一层近白。**
+ *     2026-10-22 这里写成了 72%，于是关闭态变成「白底 + 浅灰图标」的一块白斑，
+ *     图标完全看不见（用户截图报障）。当"表面提亮"用只能是**很低**的比例。 */
+body[data-ds-dark-theme] #speech-toggle {
+  background: color-mix(in srgb, var(--black) 12%, transparent);
+  color: rgb(200, 203, 210);
+}
+
+body[data-ds-dark-theme] #speech-toggle[aria-pressed='true'] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* 收起态不显示（面板整体 opacity:0，这里再兜一层，和 #deco 同一条理由） */
+body:not(.expanded) #speech-toggle {
   opacity: 0;
 }
 
@@ -1828,6 +1940,26 @@ body.expand-down #attach-strip {
   gap: 10px;
 }
 
+/* 内容超过一屏时，滚动条要**看得见**。
+ * 暗色主题下 Chromium 的默认滚动条几乎隐形，这是「以为设置里没有微信」的帮凶之一
+ * （用户报障时内容 1130px / 可视 440px，而那 690px 的溢出完全没有任何提示）。 */
+#api-config::-webkit-scrollbar {
+  width: 8px;
+}
+
+#api-config::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#api-config::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pin) 24%, transparent);
+}
+
+#api-config::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--pin) 36%, transparent);
+}
+
 .api-config-head {
   display: flex;
   align-items: center;
@@ -1877,6 +2009,197 @@ body.expand-down #attach-strip {
 
 .api-config-note[hidden] {
   display: none;
+}
+
+/* ── 设置页的分组折叠（2026-10-22）───────────────────────────────────
+ *
+ * 起因：用户报「微信设置压根没出现在设置页」。它其实在，但 `#api-config`
+ * 可视高 440px、内容 1130px，微信标题落在折叠线以下 113px，暗色下滚动条
+ * 又几乎看不见 —— 结论就成了「没有这个功能」。
+ * 改法：一组一个可折叠块，默认只展开第一组 ⇒ 所有组的标题一屏可见。
+ *
+ * ⚠️ `.api-group-body` 写了 display:flex，所以**必须**另补
+ *    `.api-group-body[hidden]{display:none}` —— UA 的 `[hidden]{display:none}`
+ *    权重极低，被我们自己的 display 一压就失效（本项目栽过，见 S14d 那条不变量）。
+ */
+.api-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.api-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.api-group-head:hover .api-group-title {
+  color: var(--accent);
+}
+
+.api-group-title {
+  /* 原本是 <p>（无样式），现在挪进 button 里，字号字重得显式给 */
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--pin) 92%, transparent);
+}
+
+.api-group-badge {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--pin) 68%, transparent);
+  background: color-mix(in srgb, var(--pin) 10%, transparent);
+}
+
+.api-group-badge[hidden] {
+  display: none;
+}
+
+.api-group-badge[data-state="on"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.api-group-caret {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-right: 1.5px solid color-mix(in srgb, var(--pin) 55%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--pin) 55%, transparent);
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 160ms ease;
+}
+
+.api-group-head[aria-expanded="false"] .api-group-caret {
+  transform: rotate(-45deg) translate(-1px, 1px);
+}
+
+.api-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ★ 上一条说的那行复位，别删 */
+.api-group-body[hidden] {
+  display: none;
+}
+
+.api-group-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: color-mix(in srgb, var(--pin) 60%, transparent);
+}
+
+/* ── 扫码卡片（微信配对 / B 站登录共用一套外观）───────────────────── */
+.api-pair,
+.api-bili {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--pin) 6%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.api-pair-account,
+.api-bili-account {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--pin) 76%, transparent);
+}
+
+.api-pair-account[data-state="in"],
+.api-bili-account[data-state="in"] {
+  color: var(--accent);
+}
+
+.api-pair-qr {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.api-pair-qr[hidden],
+.api-bili-qr[hidden] {
+  display: none;
+}
+
+.api-pair-qr svg,
+.api-bili-qr svg {
+  display: block;
+  width: 148px;
+  height: 148px;
+  border-radius: 8px;
+}
+
+.api-pair-hint,
+.api-bili-hint {
+  margin: 0;
+  min-height: 1em;
+  font-size: 11px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--pin) 62%, transparent);
+}
+
+.api-pair-hint[data-kind="ok"],
+.api-bili-hint[data-kind="ok"] {
+  color: var(--accent);
+}
+
+.api-pair-hint[data-kind="error"],
+.api-bili-hint[data-kind="error"] {
+  color: #ff8a8a;
+}
+
+.api-pair-actions,
+.api-bili-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.api-pair-actions > button,
+.api-bili-actions > button {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pin) 8%, transparent);
+  color: color-mix(in srgb, var(--pin) 88%, transparent);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.api-pair-actions > button:hover:not(:disabled),
+.api-bili-actions > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.api-pair-actions > button:disabled,
+.api-bili-actions > button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .api-field {

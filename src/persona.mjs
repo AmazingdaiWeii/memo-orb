@@ -1,9 +1,10 @@
 /**
  * persona 提取 —— CLI 注入器与 host 的**唯一**共同入口。
  *
- * 为什么单独抽一层:双模式要往**两个** agent 写两套人格。如果 CLI 用一套提取逻辑、
- * host 建 agent 时又自己写一套,两处迟早不一致 —— 而不一致的后果是「工作态的 agent
- * 拿到闲聊态的人格」,这种错很难肉眼发现。
+ * 为什么单独抽一层:CLI 与 host 都要取同一份人格。各写一套提取逻辑,两处迟早不一致,
+ * 而这种错很难肉眼发现。
+ *
+ * 2026-10-22 双模式(chat/work)退役:只剩闲聊态一档,§二 B 工作态人格整块已删。
  *
  * 为什么按**标记**取而不是行号:行号会随文档编辑漂移。
  * 为什么取「标记之后**第一个**围栏块」:`鲸鱼娘_persona.md` §二 A / §二 B 的正文
@@ -26,7 +27,6 @@ export const PERSONA_FILE = join(ROOT, '鲸鱼娘_persona.md')
 /** mode → 文档里那一节的标题前缀。改文档标题就要改这里。 */
 export const MODE_MARKERS = {
   chat: '## 二、A.',
-  work: '## 二、B.',
 }
 
 export const MODES = Object.keys(MODE_MARKERS)
@@ -35,7 +35,7 @@ export const MODES = Object.keys(MODE_MARKERS)
  * 从 md 文本里取出某一种模式的 persona 正文。
  *
  * @param {string} md 整个 persona 文档
- * @param {'chat'|'work'} mode
+ * @param {'chat'} mode
  * @returns {string} 围栏块内的正文(已 trim)
  */
 export function extractPersona(md, mode) {
@@ -58,7 +58,7 @@ export function extractPersona(md, mode) {
 export function assertPersona(text, mode) {
   if (!text || !text.trim()) throw new Error(`${mode}: persona 正文为空`)
 
-  // 与 _inject_v2.ps1 保持同一套禁句 —— 身份声明句在 v2.0 已被废掉
+  // 身份声明句在 v2.0 已被废掉
   const banned = ['你是 DeepSeek', '一个大语言模型', '真实身份是 DeepSeek']
   for (const b of banned) {
     if (text.includes(b)) throw new Error(`${mode}: persona 含被禁句「${b}」`)
@@ -72,10 +72,6 @@ export function assertPersona(text, mode) {
     throw new Error(`${mode}: 缺最高准则章节（「## 最高准则」或「## 只有一条准则」）`)
   }
 
-  if (mode === 'work') {
-    if (!text.includes('工作模式')) throw new Error('work: 标题里没写「工作模式」,会不会取错了块?')
-    if (!text.includes('不推、不问、立即照做')) throw new Error('work: 缺「涉及你自己不推不问立即照做」这条分支')
-  }
   if (mode === 'chat') {
     if (text.includes('工作模式')) throw new Error('chat: 取到的块里有「工作模式」,取错了')
   }

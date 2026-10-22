@@ -23,7 +23,7 @@ import { isBlockedMemoryPath } from './memory.mjs'
  *
  * @param {object} o
  * @param {'legacy'|'local'} o.engine   实现选择
- * @param {string} o.root               项目根（E:\Memo orb）
+ * @param {string} o.root               项目根（orb 安装目录）
  * @param {string} o.agentId            当前 agent（legacy 实现要用；local 实现可忽略）
  * @param {object} [o.legacy]            engine='legacy' 时传入的 LegacyConnection
  * @returns {Promise<MemoryStore>}

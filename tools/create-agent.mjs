@@ -21,8 +21,7 @@
  * ⚠️ 只建**空会话**，不发用户消息 ⇒ 记忆是真空的，不会留下「你好」这种测试残留。
  *
  * 用法：
- *   node tools/create-agent.mjs                 # 建 chat 模式（默认）
- *   node tools/create-agent.mjs --mode work
+ *   node tools/create-agent.mjs                 # 建 agent（只有闲聊态一档）
  *   node tools/create-agent.mjs --dry-run       # 只算指纹，不建
  *
  * 建完把 agent id 写回 config.json（agents.<mode> + agentId 兼容别名），
@@ -62,10 +61,10 @@ const persona = readPersona(mode)
 
 console.log(`=== 无头新建 agent · mode=${mode}${dryRun ? '  (DRY RUN)' : ''} ===`)
 console.log(`  模型   : ${config.model}`)
-console.log(`  名字   : ${mode === 'work' ? `${config.agentName ?? 'Orb'} Work` : (config.agentName ?? 'Orb')}`)
+console.log(`  名字   : ${config.agentName ?? 'Orb'}`)
 console.log(`  persona: ${persona.chars} 字符 · ${persona.sha256.slice(0, 16)}`)
 
-const existing = mode === 'work' ? config.agents?.work : (config.agents?.chat ?? config.agentId)
+const existing = config.agents?.chat ?? config.agentId
 if (existing && !force) {
   console.error(`\n❌ config.json 里已经有 ${mode} 的 agent（${existing}）。`)
   console.error('   本脚本只用于「出厂后首次建 agent」。要重建请先 --apply 出厂化，')
@@ -92,8 +91,8 @@ try {
   const { runtime, agent, created } = await startRuntime(conn, {
     agentId: null,
     model: config.model,
-    name: mode === 'work' ? `${config.agentName ?? 'Orb'} Work` : (config.agentName ?? 'Orb'),
-    description: mode === 'work' ? '工作模式：项目/技术，不闲聊' : '闲聊模式：陪伴向',
+    name: config.agentName ?? 'Orb',
+    description: '闲聊模式：陪伴向',
     system: persona.text,
     conversationId: null,
     permission: config.permission,

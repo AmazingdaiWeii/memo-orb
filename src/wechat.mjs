@@ -3,7 +3,7 @@
  *
  * 目标只有一句：他在手机上说话，她在手机上也听得见、答得上。
  *
- * 协议取证自 `E:\dsh-workspace\02_插件开发\dsh-omni-bridge\lib\index.js`（同机可跑的
+ * 协议取证自 `dsh-omni-bridge/lib/index.js`（同机可跑的
  * 现成实现），这里只抄三个调用：
  *
  *   POST {base}/ilink/bot/getupdates   { get_updates_buf, base_info:{channel_version} }
@@ -93,7 +93,14 @@ export function weixinHeaders(token) {
   return h
 }
 
-/** 从宿主自己的 omni-bridge 配置里搬一次凭据（只在 data/wechat.json 不存在时）。 */
+/**
+ * 从宿主自己的 omni-bridge 配置里搬一次凭据（只在 data/wechat.json 不存在时）。
+ *
+ * **默认不搬**（2026-10-22 事故后改成显式开关）：出厂包在用户机器上首启时，
+ * 这个函数把**这台机器宿主**的微信 bot 凭据搬进了 exe 旁的 `data/wechat.json`，
+ * 设置页于是显示「已连接」—— 用户以为包把人家的账号配进去了。
+ * 现在只有 `config.json` 里 `adoptHostWechatCreds: true` 才搬（开发机自己用）。
+ */
 export function migrateCreds(log = () => {}) {
   const raw = readJsonSafe(DSH_CONFIG_PATH, log)
   const c = raw?.channels?.weixin
@@ -113,14 +120,17 @@ export function migrateCreds(log = () => {}) {
 /**
  * 凭据仓。第一次启动会把 `data/wechat.json` 写出来（哪怕 disabled），
  * 理由同 policy.json：用户得看得见它在哪、改得动它。
+ *
+ * `adoptHostCreds`：是否允许从宿主 `~/.dsh` 搬一次凭据。**默认 false**——
+ * 出厂包绝不能把用户机器上别的工具的账号搬进来（见 migrateCreds 的注释）。
  */
-export function createWechatCreds({ dataRoot, log = () => {} }) {
+export function createWechatCreds({ dataRoot, log = () => {}, adoptHostCreds = false }) {
   const file = join(dataRoot, 'wechat.json')
 
   function load() {
     const raw = readJsonSafe(file, log)
     if (!raw) {
-      const migrated = migrateCreds(log)
+      const migrated = adoptHostCreds ? migrateCreds(log) : null
       const creds = { enabled: false, baseUrl: DEFAULT_BASE_URL, botToken: '', botId: '', userId: '', ...(migrated || {}) }
       writeJsonAtomic(file, creds)
       return creds
@@ -168,13 +178,14 @@ export function describeCreds(c) {
  * @param {string} o.dataRoot
  * @param {(msg:{text:string,msgId:string,fromUserId:string,contextToken:string,at:number})=>any} o.onMessage
  * @param {(s:string)=>void} [o.log]
+ * @param {boolean} [o.adoptHostCreds] 是否允许从宿主 `~/.dsh` 搬一次凭据（默认 false）
  * @param {typeof fetch} [o.fetchImpl]
  * @param {()=>number} [o.now]
  */
-export function createWechatBridge({ dataRoot, onMessage, log = () => {}, fetchImpl = fetch, now = Date.now }) {
+export function createWechatBridge({ dataRoot, onMessage, log = () => {}, adoptHostCreds = false, fetchImpl = fetch, now = Date.now }) {
   if (typeof onMessage !== 'function') throw new Error('createWechatBridge: 缺少 onMessage')
 
-  const credsStore = createWechatCreds({ dataRoot, log })
+  const credsStore = createWechatCreds({ dataRoot, log, adoptHostCreds })
   const stateFile = join(dataRoot, 'wechat-state.json')
 
   let state = { ...EMPTY_STATE }

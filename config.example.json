@@ -10,5 +10,6 @@
   "electronPath": "runtime/electron/electron.exe",
   "electronFlags": [],
   "legacyUrl": null,
-  "permission": "read-only"
+  "permission": "read-only",
+  "adoptHostWechatCreds": false
 }

@@ -179,24 +179,18 @@ function copyItem(src, dst, label, failed) {
  *   验收：`readPersona(mode, {file: 剥离版})` 的 sha256 必须与母本**逐字节相同**。
  */
 function buildStrippedPersona() {
-  const chat = extractPersona(readFileSync(join(ROOT, '鲸鱼娘_persona.md'), 'utf8'), 'chat')
-  const work = extractPersona(readFileSync(join(ROOT, '鲸鱼娘_persona.md'), 'utf8'), 'work')
+  const src = readFileSync(join(ROOT, '鲸鱼娘_persona.md'), 'utf8')
+  const chat = extractPersona(src, 'chat')
   return [
     '# 鲸鱼娘 · 人格正文（运行时副本）',
     '',
-    '> 本文件**只有正文**（两个围栏块）。设计说明、版本演进、注入记录已剥离 ——',
+    '> 本文件**只有正文**（一个围栏块）。设计说明、版本演进、注入记录已剥离 ——',
     '> 那些是给人看的，而她会读这个文件。母本保留完整版，不随程序分发。',
     '',
     '## 二、A. 初始人格全文',
     '',
     '```',
     chat,
-    '```',
-    '',
-    '## 二、B. 工作态人格全文',
-    '',
-    '```',
-    work,
     '```',
     '',
   ].join('\n')
@@ -314,12 +308,10 @@ for (const [name, why] of NOT_SHIPPED) {
   const { extractPersona: _e } = { extractPersona }
   const chatA = _e(readFileSync(join(ROOT, '鲸鱼娘_persona.md'), 'utf8'), 'chat')
   const chatB = _e(stripped, 'chat')
-  const workA = _e(readFileSync(join(ROOT, '鲸鱼娘_persona.md'), 'utf8'), 'work')
-  const workB = _e(stripped, 'work')
-  const same = chatA === chatB && workA === workB
+  const same = chatA === chatB
   console.log(C.b('\n── persona 剥离校验 ──'))
   console.log(`  母本 ${mb(Buffer.byteLength(readFileSync(join(ROOT, '鲸鱼娘_persona.md'), 'utf8')))} → 剥离后 ${mb(Buffer.byteLength(stripped))}`)
-  console.log(`  正文逐字节一致：${same ? C.ok('✓（chat 与 work 都对得上）') : C.bad('✗ 不一致，别发')}`)
+  console.log(`  正文逐字节一致：${same ? C.ok('✓（chat 块对得上）') : C.bad('✗ 不一致，别发')}`)
   if (!same) process.exit(1)
 }
 

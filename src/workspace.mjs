@@ -106,8 +106,37 @@ export async function writeWorkspaceFile(rawPath, content) {
   return { path: rel, bytes, created: !existed }
 }
 
-export async function listWorkspaceDir(rawPath = '.', { recursive = false } = {}) {
-  const { root, full, rel } = resolveInWorkspace(rawPath ?? '.')
+/**
+ * 写**二进制**文件（图片等）。路径夹逼规则与 `writeWorkspaceFile` 完全一样。
+ *
+ * 为什么要单开一个：`writeWorkspaceFile` 是 `utf8` 写的，把 JPEG 的 base64
+ * 当文本写进去，盘上就是一个**看起来像 .jpg、实际是 base64 字符串**的文件 ——
+ * 用户点开一片空白，而且不会报错。2026-10-22 加：她有画面却给不出画面
+ * （图片只活在上下文里，回合结束就没了），所以关键帧必须真的落到盘上。
+ *
+ * @param {string} rawPath 工作区相对路径
+ * @param {Buffer|Uint8Array} buf 原始字节
+ * @returns {Promise<{path: string, bytes: number, created: boolean}>}
+ */
+export async function writeWorkspaceBinary(rawPath, buf) {
+  const { full, rel } = resolveInWorkspace(rawPath)
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf ?? [])
+  if (bytes.length === 0) throw new Error('要写的内容是空的')
+  if (bytes.length > MAX_WRITE_BYTES) {
+    throw new Error(`要写 ${bytes.length} 字节，超过单次写入上限 ${MAX_WRITE_BYTES}`)
+  }
+  let existed = false
+  try {
+    existed = (await stat(full)).isFile()
+  } catch {
+    /* 不存在就是新建 */
+  }
+  await mkdir(resolve(full, '..'), { recursive: true })
+  await writeFile(full, bytes)
+  return { path: rel, bytes: bytes.length, created: !existed }
+}
+
+export async function listWorkspaceDir(rawPath = '.', { recursive = false } = {}) {  const { root, full, rel } = resolveInWorkspace(rawPath ?? '.')
   let info
   try {
     info = await stat(full)

@@ -107,3 +107,26 @@ desktop.ini
 # ── 依赖锁：保留 package-lock.json，仅忽略临时备份 ────
 *.bak
 *.bak.json
+
+# ── B 站视频工作区（凭据与大文件不进仓库）──────────────
+video/tts/local-config.json
+video/voiceover/
+video/assets/
+video/build/
+
+# AI 视频生成工作区的成片（大文件不进 git）
+video/ai-gen/output/*.mp4
+video/ai-gen/output/*.mov
+
+# AI 视频生成工作区的中间产物（16:9 首帧图、带水印原始成片、制作脚本）
+video/ai-gen/work/
+
+# ── GitHub 建仓（2026-10-22）────────────────────────────
+# 本机为建仓临时装的 GitHub CLI（gh.exe 40 MB + 安装 zip 14 MB）：只是工具，不入库
+_tools/
+# 一次性整包备份（zip）与编辑器会话残留
+_factory_backup_*.zip
+.wbapp_*.genie
+# probe/ 下所有下划线开头的临时脚本与数据。★ 其中 probe/_sess*/ 是**真实会话转储**、
+# probe/_dump/ 是历史请求快照，都带私人对话原文，绝不能进公开仓库。
+probe/_*

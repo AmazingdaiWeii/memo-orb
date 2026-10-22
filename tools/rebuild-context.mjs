@@ -23,7 +23,7 @@
  *   --session <id>     会话 id（不带会话 id 时列出该 agent 的会话）
  *   --agent <id>       agentId，缺省读 config.json 的 agents.chat / agentId
  *   --data <dir>       数据根，缺省 $env:ORB_DATA，再缺省 `<应用根>/data`
- *   --mode <chat|work> persona 档位，缺省 chat（决定 system 里的那一半人格）
+ *   --mode <chat>      persona 档位（只有 chat；'work' 已退役）
  *   --write            真的写盘（缺省只预览）
  *   --drop-summary     丢弃压缩摘要（默认保留）
  *   --force            会话还没有快照时也造一份

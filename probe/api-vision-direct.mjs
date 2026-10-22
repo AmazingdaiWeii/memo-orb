@@ -10,9 +10,23 @@
  *
  * 跑法：`node probe/api-vision-direct.mjs`
  */
+/**
+ * ⚠️ 2026-10-22 开源前审计：这里原本**硬编码了一个真实 DeepSeek API key**
+ *    （`sk-ea94…`），而且已经随提交 `b48b638`（baseline 备份点）进入 git 历史。
+ *    ⇒ 已改为从环境变量读。**历史清理必须单独做**（删文件里的值不够，
+ *      旧提交里还留着，push 上去等于公开）。处置记录见
+ *      `交接文档_球侧问题清单_2026-10-22.md` §16。
+ *    永远不要把真 key 写进被 git 跟踪的文件 —— 探针也不例外。
+ *
+ * 跑法：`DEEPSEEK_API_KEY=sk-xxx node probe/api-vision-direct.mjs`
+ */
 import { deflateSync } from 'node:zlib'
 
-const KEY = 'sk-ea941a45ad264bd4a1f428dcf2b4440c'
+const KEY = process.env.DEEPSEEK_API_KEY || ''
+if (KEY === '') {
+  console.error('缺 DEEPSEEK_API_KEY。跑法：DEEPSEEK_API_KEY=sk-xxx node probe/api-vision-direct.mjs')
+  process.exit(2)
+}
 const URL = 'https://api.deepseek.com/v1/chat/completions'
 
 function crc32(buf) {

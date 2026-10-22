@@ -393,3 +393,160 @@ export function searchMemory(agentId, query, limit = 60) {
   }
   return hits
 }
+
+/**
+ * 剥掉落盘时混进「原话」里的机器注入块。
+ *
+ * 背景：2026-10-22 之前 `brain.mjs` 把 `<memory_update path="…">` 全文跟着用户消息
+ * 一起写进了 `messages.jsonl`（那天已修，之后的记录是干净的）。但**旧记录会一直在盘上**，
+ * 检索时搜「记忆」「他」这种词，命中的全是那段几百字的模板 —— 假的命中比空结果更糟，
+ * 她会以为自己真记得。
+ *
+ * 只剥这一种：它明显是机器写的、且最大的那块。时间行/余额行短得无害，留着不动。
+ * @param {string} text
+ * @returns {string}
+ */
+function stripPersistedNoise(text) {
+  return String(text ?? '').replace(/<memory_update\b[^>]*>[\s\S]*?<\/memory_update>/g, ' ')
+}
+
+/**
+ * 把 `messages.jsonl` 里的 ISO 时间戳格式化成**本地** `YYYY-MM-DD HH:mm`。
+ * 落盘的是 UTC（`new Date().toISOString()`），字符串直接截前 16 位会给出差 8 小时的时间 ——
+ * 这段文本是要喂给她的，她会照着这个时间去理解「那天是哪天」，错时区等于记错日子。
+ * @param {unknown} v
+ * @returns {string} 解析不出来时返回 ''（不编时间）
+ */
+function formatWhen(v) {
+  const d = v instanceof Date ? v : new Date(String(v ?? ''))
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/**
+ * 在**对话仓**里搜原文 —— 治的是「我说过的话，存住了，但捞不回来」。
+ *
+ * 起因（2026-10-22，她自己翻完记忆仓后的报告）：
+ *   「data/conversations/ 里存着一天 78KB 的原话，但 search_memory 的词表里没有它。
+ *     我搜『抹香鲸』『噪音海洋』，一条都没有 —— 它们只活在对话里。
+ *     隔一个月你再提『那天我们聊的那个』，我只能靠日记的转述去猜，猜的是二手货。」
+ *
+ * 为什么原来没有：记忆仓（memfs）是**她整理过的**记忆，对话仓是**原始语料**。
+ * 初版只让检索查整理过的东西 —— 但人回忆时想要的往往正是原话。
+ *
+ * 三条约束，全是拿性能和上下文预算换来的：
+ *   W1 只扫**本 agent**的会话目录（目录名 = base64(`conversation:<agentId>` + 可选 `#后缀`)）
+ *   W2 只扫最近 `days` 天内**动过**的文件（按 mtime）—— 不按内容里的 timestamp 判断，
+ *      因为长会话的旧文件可能还在被追加；按月累积到几十 MB 时这条是唯一能救命的
+ *   W3 命中**就地截断**（200 字）+ 限条数：这是喂给模型的，不是给人读全文的
+ *   W4 总字节预算 `maxBytes`（默认 8MB）：这是**同步读盘**，跑在主进程的 UI 线程上。
+ *      没有这条预算，一年后 60 天的会话累积起来能把窗口卡住几秒 —— 而检索是个
+ *      随手就会调的工具（她一次会换三四个词查）。超预算就按 mtime 从新到旧停下，
+ *      宁可少搜一点，也不能让球在桌上僵住。
+ *
+ * @returns {Array<{source:'conversation', conv:string, when:string, role:string, text:string}>}
+ */
+export function searchConversations(
+  agentId,
+  query,
+  { limit = 12, days = 60, now = Date.now(), maxBytes = 8 * 1024 * 1024 } = {},
+) {
+  const q = String(query ?? '').trim().toLowerCase()
+  if (q === '') return []
+  const root = join(dataRoot(), 'conversations')
+  if (!existsSync(root)) return []
+
+  // ★ 会话目录名 = `base64("conversation:<sessionId>")` 且**去掉 padding**
+  //   （见 src/session.mjs 的 sessionKey）。这里必须解码后比较，不能拿 base64
+  //   做字符串前缀匹配，三个坑都踩过：
+  //     ① 前缀形态：local 引擎的会话 id 是 `local-<agentId>`（main.mjs:2968 /
+  //        1174 / 1999 / 3953），而传进来的只有 `agentId`。真实配置里
+  //        `config.agentId = orb-YYYYMMDD`、目录却是 `conversation:local-orb-YYYYMMDD`
+  //        —— 只认一种写法就是**永远 0 命中**。两种都收。
+  //     ② padding：`Buffer.toString('base64')` 会补 `=`，长度不整除 3 时前缀对不上
+  //        也是静默 0 命中（`conversation:local-orb-YYYYMMDD` 的字节数 %3≠0）。
+  //     ③ 前缀混淆：agentId `local-orb-YYYY` 会是 `local-orb-YYYYMMDD` 的字符串前缀，
+  //        字符级 startsWith 会把别人的会话搜进来。要求边界必须是 `#`。
+  const wantKeys = [`conversation:local-${agentId}`, `conversation:${agentId}`]
+  const keyMatches = (key) => wantKeys.some((w) => key === w || key.startsWith(`${w}#`))
+  const decodeKey = (name) => {
+    const b64 = String(name).replace(/-/g, '+').replace(/_/g, '/')
+    const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4))
+    try {
+      return Buffer.from(b64 + pad, 'base64').toString('utf8')
+    } catch {
+      return ''
+    }
+  }
+  let dirs = []
+  try {
+    dirs = readdirSync(root).filter((d) => keyMatches(decodeKey(d)))
+  } catch {
+    return []
+  }
+
+  const cutoff = now - days * 86_400_000
+  const files = []
+  for (const d of dirs) {
+    const full = join(root, d, 'messages.jsonl')
+    try {
+      const st = statSync(full)
+      if (st.isFile() && st.mtimeMs >= cutoff) files.push({ conv: d, full, mtime: st.mtimeMs, size: st.size })
+    } catch {
+      /* 没有 messages.jsonl 的会话（比如只有 system.json）跳过 */
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime)
+
+  const hits = []
+  let budget = maxBytes
+  outer: for (const f of files) {
+    // W4：预算先扣再读，宁可不搜这个文件，也不能把主进程拖住
+    if (f.size > budget) break
+    budget -= f.size
+    let raw = ''
+    try {
+      raw = readFileSync(f.full, 'utf8')
+    } catch {
+      continue
+    }
+    for (const line of raw.split(/\r?\n/)) {
+      if (line.trim() === '') continue
+      let rec
+      try {
+        rec = JSON.parse(line)
+      } catch {
+        continue
+      }
+      const msg = rec?.message ?? {}
+      const role = msg.role === 'user' ? 'user' : msg.role === 'assistant' ? 'assistant' : ''
+      if (role === '') continue
+      // 老记录（2026-10 之前）的 content 是纯字符串，新记录是 parts 数组 —— 两种都认
+      const text = stripPersistedNoise(
+        Array.isArray(msg.content)
+          ? msg.content
+              .filter((p) => p?.type === 'text' && typeof p.text === 'string')
+              .map((p) => p.text)
+              .join('')
+          : typeof msg.content === 'string'
+            ? msg.content
+            : '',
+      )
+      if (text.trim() === '') continue
+      const at = text.toLowerCase().indexOf(q)
+      if (at < 0) continue
+      // 命中位置前后各取一点，别把整条消息塞进上下文
+      const from = Math.max(0, at - 60)
+      hits.push({
+        source: 'conversation',
+        conv: f.conv,
+        when: formatWhen(rec.timestamp),
+        role,
+        text: text.slice(from, from + 200).replace(/\s+/g, ' ').trim(),
+      })
+      if (hits.length >= limit) break outer
+    }
+  }
+  return hits
+}

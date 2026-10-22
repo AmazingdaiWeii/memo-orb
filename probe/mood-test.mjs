@@ -168,6 +168,18 @@ for (const raw of ['', '  ', 'nonsense', '情绪', '哈哈', null, undefined, 42
   check(`认不出 ${JSON.stringify(raw)}（返回 null，不瞎猜）`, coerceMood(raw) === null, String(coerceMood(raw)))
 }
 
+// 2026-10-22 新增的 17 个词（来源：audit 的真实输出 + 那 5 条多词标记），逐个锁死归属 ——
+// 别名表最怕的不是漏词，是**词归错组**（比如把「坦白」放进 shy，表情就一直害羞）。
+for (const [raw, want] of [
+  ['愣了下', 'surprised'], ['愣了一下', 'surprised'], ['愣了一瞬', 'surprised'], ['没反应过来', 'surprised'],
+  ['认真起来', 'thinking'], ['认真了', 'thinking'], ['坦白', 'thinking'],
+  ['松了口气', 'happy'], ['松了一口气', 'happy'], ['乐了', 'happy'], ['笑了', 'happy'],
+  ['放心', 'happy'], ['轻松', 'happy'],
+  ['有点窘', 'shy'], ['窘', 'shy'], ['窘迫', 'shy'], ['害臊', 'shy'],
+]) {
+  check(`新词「${raw}」→ ${want}`, coerceMood(raw) === want, String(coerceMood(raw)))
+}
+
 // ================================================================ 6. extractMood（核心）
 group('6. ★ extractMood —— 待测清单 2.1-2.5')
 const plain = '今天的活儿我干完了，你歇会儿吧。'
@@ -211,9 +223,47 @@ for (const [text, why] of cases) {
   const r = extractMood(text)
   check(`不动「${text}」（${why}）`, r.found === false && r.text === text, JSON.stringify(r.text))
 }
-check('超长值不吃掉整段（值限 12 字符）',
-  extractMood('(mood:' + 'a'.repeat(30) + ')').found === false)
-check('值里带空格不匹配（逼她用单个词）', extractMood('(mood:very happy)').found === false)
+check('超长值不吃掉整段（值上限 48 字符，防 `(mood:` 意外吞掉整句）',
+  extractMood('(mood:' + 'a'.repeat(80) + ')').found === false)
+check('上限之内照吃（48 字以内都算标记）',
+  extractMood('(mood:' + 'a'.repeat(48) + ')').found === true)
+check('多词写法：标记剥掉，但不瞎猜情绪（英文多词没标点可切，不硬拆）',
+  (() => {
+    const r = extractMood('(mood:very happy)')
+    return r.found === true && r.mood === null && !r.text.includes('mood')
+  })(),
+  JSON.stringify(extractMood('(mood:very happy)')))
+
+// ------------------------------------------------ 6b-2. 多词标记（2026-10-22 放宽）
+// 来源：`probe/mood-marker-gap.mjs` 从 30 个真实会话文件里扫出的 5 条，全是 `（mood:X，Y）`。
+// 放宽前这 5 条**整体匹配失败**：表情不切，而且标记原样留在正文里给她看见（双重 bug）。
+{
+  const samples = [
+    ['（mood:愣了下，认真起来）', 'surprised', '第一词「愣了下」胜出'],
+    ['（mood:开心，松了口气）', 'happy', '第一词「开心」直接命中'],
+    ['（mood:惊喜，眼睛都亮了）', 'surprised', '第二词只是描述，靠第一词'],
+    ['（mood:有点窘，笑了）', 'shy', '第一词「有点窘」'],
+    ['（mood:乐了，好奇）', 'happy', '第一词「乐了」'],
+  ]
+  for (const [raw, want, why] of samples) {
+    const r = extractMood(`好呀${raw}。`)
+    check(`${raw} → ${want}（${why}）`, r.mood === want, String(r.mood))
+    check(`${raw} 剥得干净（正文只剩「好呀。」）`, r.text === '好呀。', JSON.stringify(r.text))
+  }
+
+  // 分隔符不能只有中文逗号：顿号、英文逗号、分号都该能切
+  check('顿号也能切', extractMood('(mood:开心、好奇)').mood === 'happy',
+    String(extractMood('(mood:开心、好奇)').mood))
+  check('英文逗号也能切', extractMood('(mood:shy, happy)').mood === 'shy',
+    String(extractMood('(mood:shy, happy)').mood))
+  // 但空格**不能**当分隔符：`not happy` 按空格切会得到 happy，语义正好反了
+  check('空格不算分隔符（防止 not happy 被切成 happy）',
+    extractMood('(mood:not happy)').mood === null,
+    String(extractMood('(mood:not happy)').mood))
+  check('一个词都认不出时仍以最后一个标记为准（不改情绪）',
+    extractMood('(mood:开心)(mood:不知道啥)').mood === 'happy',
+    String(extractMood('(mood:开心)(mood:不知道啥)').mood))
+}
 
 group('6c. 空白收拾')
 check('标记独占一行时不留三重空行',

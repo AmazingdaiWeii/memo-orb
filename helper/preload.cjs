@@ -191,6 +191,24 @@ contextBridge.exposeInMainWorld('dshOrb', {
     return ipcRenderer.invoke('orb:bili-logout')
   },
   /**
+   * 微信扫码配对（2026-10-22，开源版必备）。
+   *
+   * 与 B 站扫码**同一套形状**：`wechatPairStart()` 拿回
+   * `{ ok, qrcodeKey, url, svg, expiresAt }`，渲染层把 `svg` 塞进容器，
+   * 然后每 2 秒 `wechatPairPoll(key)`。
+   * `state` ∈ `waiting|scanned|confirmed|expired`；`confirmed` 时宿主已经把
+   * botToken 写进 `data/wechat.json` 并把桥重建好了 —— 渲染层刷新快照即可。
+   *
+   * ⚠️ **botToken 永不回渲染层**：`confirmed` 只带 `{ botId, userId }`，
+   *    让界面能说「配对到谁」，但密钥不出主进程。
+   */
+  wechatPairStart() {
+    return ipcRenderer.invoke('orb:wechat-pair-start')
+  },
+  wechatPairPoll(qrcodeKey) {
+    return ipcRenderer.invoke('orb:wechat-pair-poll', String(qrcodeKey ?? ''))
+  },
+  /**
    * 「看过的视频」账本（本地记录，只读；清空要用户自己点）。
    * 与 `bili_watch` 工具、`bili_history` 工具读的是同一份 `data/bili-history.json`。
    */
@@ -465,6 +483,47 @@ contextBridge.exposeInMainWorld('dshOrb', {
    */
   onDeco(callback) {
     ipcRenderer.on('orb:deco', (_event, payload) => callback(payload))
+  },
+  /**
+   * ── 语音播报（2026-10-22）────────────────────────────────────────────
+   *
+   * 音频**不落盘**：主进程合成完直接以 base64 过来，渲染层转成 Blob 播，
+   * `ended` 一到就 `revokeObjectURL()`。整条链路只过内存。
+   *
+   * `payload` = `{ gen, seq, mime, audio(base64), chars, ms, preview? }`
+   *   · `seq` 只是保序用的序号，播放端不需要自己排序（主进程已经排好）
+   *   · `preview:true` 是「设置页试听」，与正常播报走同一条播放队列
+   *
+   * ⚠️ 不要在 preload 里把 base64 解成 Uint8Array 再传：contextBridge 的
+   *    结构化克隆对 TypedArray 的支持在各版本 Electron 上不一致，
+   *    实测有些版本会把它降级成普通对象，渲染层拿到就废了（且不报错）。
+   *    字符串最稳，47KB 的额外开销可以忽略。
+   */
+  onSpeech(callback) {
+    ipcRenderer.on('orb:speech', (_event, payload) => callback(payload))
+  },
+  /** 打断：清空播放队列、停掉当前这一句。`payload` = `{ gen, reason }`。 */
+  onSpeechStop(callback) {
+    ipcRenderer.on('orb:speech-stop', (_event, payload) => callback(payload))
+  },
+  /** 开关状态（主进程是真源，球侧只画）。`{ enabled, ready, providerLabel, description }` */
+  onSpeechState(callback) {
+    ipcRenderer.on('orb:speech-state', (_event, payload) => callback(payload))
+  },
+  /** 头像旁那颗喇叭按钮点下去 —— 主进程翻开关并写盘，成功后会推回 speech-state。 */
+  speechToggle(on) {
+    return ipcRenderer.invoke('orb:speech-toggle', on === true)
+  },
+  /** 设置页「试听」：主进程现合成一句，走同一条播放链路。 */
+  speechTest() {
+    return ipcRenderer.invoke('orb:speech-test')
+  },
+  /** 语音配置读写（设置页第四组）。 */
+  ttsGet() {
+    return ipcRenderer.invoke('orb:tts-get')
+  },
+  ttsSet(patch) {
+    return ipcRenderer.invoke('orb:tts-set', patch ?? {})
   },
   onReset(callback) {
     ipcRenderer.on('orb:reset', () => callback())

@@ -36,7 +36,7 @@ export const SKIP_DIRS = new Set([
   'Windows.old',
 ])
 
-/** 显示用的路径：反斜杠换正斜杠（`E:/Memo orb/...` 更好读、也更好复制）。 */
+/** 显示用的路径：反斜杠换正斜杠（`项目根/...` 更好读、也更好复制）。 */
 export function displayPath(abs) {
   return String(abs).split(sep).join('/')
 }

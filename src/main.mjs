@@ -44,6 +44,8 @@ import {
   summarizeTask,
 } from './impression.mjs'
 import { DEFAULT_MOOD, THINKING_MOOD, assetFor, extractMood, isSafeAssetSrc } from './mood.mjs'
+import { PROVIDERS as TTS_PROVIDERS, createTts, describeTtsState, loadTtsConfig, saveTtsConfig, ttsConfigPath } from './tts/index.mjs'
+import { createSpeechQueue } from './tts/speech.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = dirname(HERE)
@@ -55,6 +57,19 @@ const LOGS = join(ROOT, 'logs')
 const LOG_FILE = join(LOGS, 'orb.log')
 
 mkdirSync(LOGS, { recursive: true })
+
+/**
+ * 让渲染层在**没有用户手势**的情况下也能出声（语音播报的前提）。
+ *
+ * 背景：Chromium 的 autoplay 策略默认是 `document-user-activation-required` ——
+ * 页面必须被点过才能 `Audio.play()`，否则返回 `NotAllowedError` 并被静默拒绝。
+ * 她的话是在**后台**到点的（回合结束、闹钟到点），没有任何点击动作，
+ * 不加这一条的话表现就是「开关开着、日志里有合成日志、但一点声音都没有」——
+ * 最难查的一类（播放调用报了 reject，但没人看 console）。
+ *
+ * 必须在 app ready 之前调用，所以放在模块顶层。
+ */
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 
 const stamp = () => new Date().toISOString().slice(11, 19)
 function log(msg) {
@@ -71,7 +86,7 @@ function logRaw(label, value) {
 // ---------------------------------------------------------------- 对话隐私锁
 // 状态层在 src/lock.mjs（凭证怎么存、考验怎么算），流程在 src/lock-flow.mjs
 // （什么时候锁、锁住时给球看什么）。这里只做一件事：把两边的依赖接上。
-// 设计依据：E:\Memo orb\对话加密_落地方案.md
+// 设计依据：docs/对话加密_落地方案.md
 // ⚠️ 数据层零改动 —— 门禁只发生在「host 把历史推给球」这一层，
 //    conversations/<id>/messages.jsonl 始终明文，legacy 续聊与记忆反射完全不受影响。
 //
@@ -121,6 +136,14 @@ const DEFAULT_CONFIG = {
    *    由 helper 整文件覆写（`src/window-state.ts`），host 只读不写。
    */
   mainConversations: {},
+  /**
+   * 是否允许从宿主 `~/.dsh/omni-bridge-config.json` 搬一次微信凭据（**默认关**）。
+   *
+   * 2026-10-22 事故：出厂包里 exe 在用户机器上首启时，搬家逻辑把这台机器
+   * 宿主的微信 bot 凭据写进了 `data/wechat.json`，设置页显示「已连接」。
+   * 现在只有显式 `true` 才搬 —— 开发机在 config.json 里自己开。
+   */
+  adoptHostWechatCreds: false,
 }
 
 /**
@@ -175,7 +198,8 @@ function saveConfig() {
 // ---------------------------------------------------------------- 双模式（方案 §2 / §4）
 
 /** 可用模式。顺序即 UI 里的展示顺序。 */
-const MODES = ['chat', 'work']
+const MODES = ['chat']
+// 2026-10-22 工作态退役：只剩闲聊态一档人格，'work' 会被 MODES 守卫拒掉。
 
 /**
  * 当前模式。**只有 switchMode() 能改它** —— 别处一律不许直接赋值。
@@ -219,23 +243,22 @@ function rememberAgent(agentId) {
   return true
 }
 
-/** 两个 agent 起可区分的名字，方便在 `~/.legacy` 目录里肉眼认出来。 */
-function agentNameFor(forMode) {
-  const base = config.agentName ?? 'Orb'
-  return forMode === 'work' ? `${base} Work` : base
+/** agent 的名字（双模式退役后只有一档；参数留着只为不改 40 多处调用点）。 */
+function agentNameFor(/* forMode：已无用 */) {
+  return config.agentName ?? 'Orb'
 }
 
-function agentDescriptionFor(forMode) {
-  return forMode === 'work' ? '工作模式：项目/技术，不闲聊' : '闲聊模式：陪伴向'
+function agentDescriptionFor(/* forMode：双模式退役后已无用，兼容保留 */) {
+  return '闲聊模式：陪伴向'
 }
 
 /**
- * 取某模式的 persona 文本（**建 agent 那一刻**写进 system）。
+ * 取 persona 文本（**建 agent 那一刻**写进 system）。
  *
  * ⚠️ 失败返回 undefined 而不是抛 —— persona 文档被改坏时，宁可建一个没有 system 的
- *    agent（之后还能补跑 `tools/apply-persona.mjs`），也不要连 agent 都建不出来。
- * ⚠️ persona 的**权威**注入口是 `tools/apply-persona.mjs`。这里只是「建的那一刻别让它空着」：
- *    空着的话第一次进工作态她是个「没有设定的人」，那次对话会很难看。
+ *    agent（之后还能补跑 `tools/create-agent.mjs`），也不要连 agent 都建不出来。
+ * ⚠️ persona 的**权威**注入口是 `tools/create-agent.mjs`（它把 persona.text 烤进 system）。
+ *    这里只是「建的那一刻别让它空着」。
  */
 function personaFor(forMode) {
   try {
@@ -422,6 +445,7 @@ async function ensureWechatBridge() {
   const bridge = createWechatBridge({
     dataRoot: settingsDataRoot(),
     log,
+    adoptHostCreds: config.adoptHostWechatCreds === true,
     onMessage: (item) => (wechatFront ? wechatFront.receive(item) : Promise.resolve('dropped')),
   })
   const front = createWechatFront({
@@ -439,7 +463,7 @@ async function ensureWechatBridge() {
 /** 微信设置的对外快照（「设置」抽屉读它）。token 只回给本机渲染层，不进日志。 */
 async function wechatSettingsSnapshot() {
   const { createWechatCreds, describeCreds } = await import('./wechat.mjs')
-  const store = createWechatCreds({ dataRoot: settingsDataRoot(), log })
+  const store = createWechatCreds({ dataRoot: settingsDataRoot(), log, adoptHostCreds: config.adoptHostWechatCreds === true })
   const creds = store.load()
   return {
     ok: true,
@@ -449,6 +473,7 @@ async function wechatSettingsSnapshot() {
     baseUrl: creds.baseUrl,
     description: describeCreds(creds),
     running: Boolean(wechatBridge),
+    adoptHostCreds: config.adoptHostWechatCreds === true,
     stats: wechatBridge ? wechatBridge.stats() : null,
   }
 }
@@ -461,7 +486,7 @@ async function wechatSettingsSnapshot() {
  */
 async function applyWechatSettings(patch) {
   const { createWechatCreds, describeCreds } = await import('./wechat.mjs')
-  const store = createWechatCreds({ dataRoot: settingsDataRoot(), log })
+  const store = createWechatCreds({ dataRoot: settingsDataRoot(), log, adoptHostCreds: config.adoptHostWechatCreds === true })
   const next = store.save(patch ?? {})
   if (wechatBridge) {
     try {
@@ -481,6 +506,97 @@ async function applyWechatSettings(patch) {
 /** 数据根（与 ensureRuntime 同一套规则；设置面板可能早于 runtime 打开）。 */
 function settingsDataRoot() {
   return process.env.ORB_DATA || join(ROOT, 'data')
+}
+
+/**
+ * 微信扫码配对（**开源版必需**）。
+ *
+ * 为什么不能只靠 DSH：原来 token 是从 `~/.dsh/omni-bridge-config.json` 迁过来的，
+ * 那是 `dsh-omni-bridge` 插件扫码配对的产物。**开源版默认用户没装 DSH** ——
+ * 对他们来说设置页只有三个空框，且没有任何途径把框填上。所以把插件里那两个
+ * 配对接口搬到 `src/wechat-pair.mjs`，这里只负责「配好之后落盘 + 重启桥」。
+ *
+ * ⚠️ 配对成功的判据只有 `bot_token` 非空（见 wechat-pair.mjs 文件头），
+ *    成功后立刻走 `applyWechatSettings` —— 它会把 `enabled` 打开并重建桥，
+ *    用户扫完码不用再点一次「保存」。
+ */
+let wechatPair = null
+async function getWechatPair() {
+  if (wechatPair) return wechatPair
+  const { createWechatPair } = await import('./wechat-pair.mjs')
+  wechatPair = createWechatPair({ log })
+  return wechatPair
+}
+
+/**
+ * 配对成功的「已处理」记忆 + 串行锁。
+ *
+ * ★ 2026-10-22 用户实测 bug：**手机扫码配对成功了，界面上却是红字「配对失败：请求超时」**，
+ *   重新打开设置页才看到配对成功。根因是并发轮询：
+ *
+ *     t=0  前端 poll #1 → 服务端回 confirmed（带 bot_token）
+ *          → 主进程开始写盘 + 拆桥重建（几百毫秒到几秒）
+ *     t=2  前端的 2 秒定时器**还在跑**（它拿不到结果就不能停）→ poll #2
+ *          → 服务端对**已消费**的 qrcode 可能挂住不回 → 本地 15s 超时
+ *     t=?  poll #1 先回来 → 界面显示「配对成功」
+ *     之后 poll #2 的超时回来 → 把红字盖在成功提示上
+ *
+ *   两处一起改才治本：
+ *     ① 同一张码**处理过就短路**，不再打服务端（这里）；
+ *     ② 渲染层丢掉「过期请求」的结果（`api-config.js` 的 `startWechatPoll`）。
+ *   只改一处仍然会偶发：①保证不再发第二次，②保证已经发出去的那次回来也不算数。
+ */
+let wechatPairDoneKey = ''
+let wechatPairDoneResult = null
+/** 把 poll 串行化：两个并发的 poll 不会同时走「confirmed → 重建桥」。 */
+let wechatPairChain = Promise.resolve()
+function wechatPairSerialize(fn) {
+  const next = wechatPairChain.then(fn, fn)
+  wechatPairChain = next.then(
+    () => {},
+    () => {}
+  )
+  return next
+}
+
+async function pairWechat(action, qrcodeKey) {
+  const pair = await getWechatPair()
+  if (action === 'start') {
+    const r = await pair.start()
+    if (!r.ok) log(`[wechat] 取配对二维码失败：${r.error}`)
+    return r
+  }
+  if (action !== 'poll') return { ok: false, error: `未知动作 ${action}`, state: 'error' }
+
+  const key = String(qrcodeKey ?? '')
+  return wechatPairSerialize(async () => {
+    // ① 这张码已经配好过 —— 直接把上次的结果再回一遍，**一个字节都不再打服务端**。
+    if (key !== '' && key === wechatPairDoneKey && wechatPairDoneResult) {
+      log('[wechat] 这张码已配对完成，重复的 poll 直接回上一次结果（不打服务端）')
+      return wechatPairDoneResult
+    }
+
+    const r = await pair.poll(key)
+    if (!r.ok || r.state !== 'confirmed' || !r.creds) return r
+
+    const saved = await applyWechatSettings({
+      enabled: true,
+      botToken: r.creds.botToken,
+      botId: r.creds.botId,
+      userId: r.creds.userId,
+      // 空的 baseUrl 不要覆盖盘上已有的（save 里也挡了一层，这里表意更清楚）
+      ...(r.creds.baseUrl ? { baseUrl: r.creds.baseUrl } : {}),
+    })
+    // ⚠️ 不把 botToken 回给渲染层 —— 配对成功的界面只需要「配对到谁」。
+    wechatPairDoneKey = key
+    wechatPairDoneResult = {
+      ok: true,
+      state: 'confirmed',
+      creds: { botId: r.creds.botId, userId: r.creds.userId },
+      data: saved.data,
+    }
+    return wechatPairDoneResult
+  })
 }
 
 /**
@@ -939,6 +1055,243 @@ function send(obj) {
   ballSocket.write(`${JSON.stringify(obj)}\n`)
 }
 
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ * 语音播报（2026-10-22）
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * 分工（三处，别混）：
+ *   · `src/tts/*`           文字 → 音频字节（只取，不播）
+ *   · `src/tts/speech.mjs`  切句 / 清洗 / 排队 / 保序 / 打断（本文件下面这套）
+ *   · 渲染层 `shell.js`     `new Audio(blobUrl)` 真出声
+ *
+ * 为什么播放在渲染层而不是主进程：主进程没有音频输出能力。Electron 的
+ * `Audio` 是 DOM API，只有渲染进程有。所以音频必须「主进程合成 → IPC 传字节 →
+ * 渲染层播」。
+ *
+ * ★ mp3 **不落盘**（用户 2026-10-22 明确要求「即用即抛」）：
+ *   整条链路只在内存里走一趟，播完 `revokeObjectURL()` 就还给系统。
+ *   磁盘上不会因为说话多出一个文件 —— 这是默认行为，不是可选项。
+ *
+ * ★ `enabled` 默认 false。开源出去以后若默认开、还带着作者的 key，
+ *   每个下载的人都花作者的钱（`defaultTtsConfig()` 里那条注释）。
+ */
+const ttsState = {
+  /**
+   * 当前生效的配置（tts.json 的快照）。
+   *
+   * ★ 必须显式传 `settingsDataRoot()`，**不能**让 `loadTtsConfig()` 用默认值：
+   *   `memory.mjs` 的 `dataRoot()` 在 `process.env.ORB_DATA` 没设时回落到
+   *   `~/.legacy/lc-local-backend`，而 `ORB_DATA` 要等 runtime 起来（L3009）才设 ——
+   *   模块初始化这个时间点上它还是空的。踩这个坑的表现是「设置页里显示没配」
+   *   而 `data/providers/tts.json` 明明写着。
+   */
+  cfg: loadTtsConfig(settingsDataRoot()),
+  /** 当前适配器实例；配置一改就重建 */
+  tts: null,
+  /** 最近一次失败原因，给设置页显示（不带密钥） */
+  lastError: '',
+}
+
+function buildTts() {
+  try {
+    ttsState.tts = createTts(ttsState.cfg, { log })
+    return ttsState.tts
+  } catch (err) {
+    ttsState.tts = null
+    ttsState.lastError = `TTS 适配器创建失败：${err?.message || err}`
+    log(`[tts] ${ttsState.lastError}`)
+    return null
+  }
+}
+
+/** 给 UI / 日志的状态快照。**不许带密钥原文**。 */
+function speechState() {
+  const d = ttsState.tts ? ttsState.tts.describe() : null
+  const cred = d ? (d.provider === 'volcano' ? (d.hasAppPair || d.hasApiKey) : d.hasKey) : false
+  // 复刻音色没填 speaker 的话，能合成但不是「她」—— 仍算可用，由设置页去提示
+  const ready = Boolean(cred)
+  return {
+    type: 'speech-state',
+    enabled: ttsState.cfg.enabled === true,
+    ready,
+    provider: d?.provider ?? ttsState.cfg.provider,
+    providerLabel: d?.providerLabel ?? '',
+    variant: d?.activeVariant ?? ttsState.cfg.volcano?.variant ?? '',
+    speaker: d?.speaker ?? '',
+    description: describeTtsState(d ? { ...d, enabled: ttsState.cfg.enabled === true } : null),
+    lastError: ttsState.lastError,
+  }
+}
+
+function pushSpeechState() {
+  send(speechState())
+  return speechState()
+}
+
+/**
+ * 播报队列。
+ *
+ * `speak` 做成闭包而不是直接传 `ttsState.tts.speak`：配置改了要重建实例，
+ * 把方法绑定在创建时的话，改完 key 得重启才能生效（第 N 次「改了没反应」）。
+ */
+const speech = createSpeechQueue({
+  enabled: ttsState.cfg.enabled === true,
+  speak: async (text) => {
+    const tts = ttsState.tts ?? buildTts()
+    if (!tts) return { ok: false, error: ttsState.lastError || 'TTS 没配好' }
+    const r = await tts.speak(text)
+    if (!r.ok) ttsState.lastError = r.error ?? '合成失败'
+    return r
+  },
+  emit: (payload) => send(payload),
+  log,
+  onFail: (e) => noteSpeechFail(e),
+})
+
+buildTts()
+
+/**
+ * 嗓子的状态通道（2026-10-22 用户报：「她不知道自己有没有嗓子」）。
+ *
+ * 三条硬事实决定了必须显式告诉她：
+ *  1. 话是**宿主**念的（她的字 → 分段 → 云端合成 → 渲染层播放），不是她自己出声；
+ *  2. 合成结果**不回流模型** —— 成功她看不见，失败她也看不见；
+ *  3. 失败只写日志（第 1 次与每第 5 次），她那边一片安静。
+ * 于是她默认「我说的话他当然听见了」——没配 key 时也这么说。
+ *
+ * 这一行每轮附在她消息尾部（不落盘，同时间/余额行口径）：
+ *  - 关着 → 明确「只出文字」；
+ *  - 开着但没配好 → 明确「不会出声」+ 原因（这是她最需要知道的那一种）；
+ *  - 可用 → 「可用」；上一轮有句子合成失败 → 追加一行「那句他可能没听见」，**报一次即清**。
+ */
+const voiceNote = { lastFail: '', count: 0 }
+
+function noteSpeechFail(e) {
+  voiceNote.count += 1
+  voiceNote.lastFail = String(e?.error || '没有音频')
+}
+
+const voice = {
+  turnLine() {
+    const s = speechState()
+    if (!s.enabled) return '语音：播报关着 —— 你这轮的话只以文字出现，不会被念出来。'
+    if (!s.ready) {
+      return `语音：开关开着但没配好（${s.lastError || '缺凭据'}）—— 你写的话不会出声，他看到的就是文字，别以为他听见了。`
+    }
+    const bits = [`语音：${s.providerLabel || s.provider || 'TTS'}${s.speaker ? ` · 音色 ${s.speaker}` : ''} · 可用`]
+    if (voiceNote.lastFail) {
+      bits.push(`刚才有 ${voiceNote.count} 句没合成出来（${voiceNote.lastFail}），那几句他可能没听见`)
+      voiceNote.lastFail = ''
+      voiceNote.count = 0
+    }
+    return bits.join('；')
+  },
+}
+
+/** 改完配置/开关后统一刷新：重建适配器 → 同步开关 → 推状态给球。 */
+function refreshTts() {
+  ttsState.cfg = loadTtsConfig(settingsDataRoot())
+  ttsState.lastError = ''
+  buildTts()
+  speech.setEnabled(ttsState.cfg.enabled === true)
+  return pushSpeechState()
+}
+
+/**
+ * 设置页用快照。字段形状与 `data/providers/tts.json` 一一对应，
+ * 渲染层据此填表；`providers` 给下拉用（字段清单只在 index.mjs 定义一次）。
+ */
+function ttsSnapshot() {
+  const cfg = ttsState.cfg ?? loadTtsConfig(settingsDataRoot())
+  return {
+    ok: true,
+    file: ttsConfigPath(settingsDataRoot()),
+    enabled: cfg.enabled === true,
+    provider: cfg.provider,
+    providers: Object.values(TTS_PROVIDERS).map((p) => ({
+      id: p.id,
+      label: p.label,
+      fields: p.fields,
+      note: p.note,
+    })),
+    volcano: { ...cfg.volcano },
+    openai: { ...cfg.openai },
+    state: speechState(),
+  }
+}
+
+/**
+ * 存语音设置。
+ *
+ * 只接受设置页真的动过的段（渲染层算好 patch 再发），未知键一律忽略 ——
+ * 这条与 `orb:api-config-set` 同一套纪律：白名单会静默丢字段，
+ * 但**全量透传**会让渲染层有能力覆盖它不该碰的东西（比如 variant 探测结果）。
+ */
+function applyTtsPatch(patch = {}) {
+  const p = patch && typeof patch === 'object' ? patch : {}
+  const next = {
+    ...ttsState.cfg,
+    volcano: { ...ttsState.cfg.volcano },
+    openai: { ...ttsState.cfg.openai },
+  }
+  const notes = []
+
+  if (typeof p.provider === 'string' && TTS_PROVIDERS[p.provider]) {
+    if (next.provider !== p.provider) {
+      next.provider = p.provider
+      notes.push(`服务商 → ${p.provider}`)
+    }
+  }
+  if (typeof p.enabled === 'boolean' && next.enabled !== p.enabled) {
+    next.enabled = p.enabled
+    notes.push(`播报 → ${p.enabled ? '开' : '关'}`)
+  }
+  const str = (v) => (typeof v === 'string' ? v.trim() : undefined)
+  for (const field of ['appId', 'accessKey', 'apiKey', 'speaker', 'variant']) {
+    const v = str(p.volcano?.[field])
+    if (v === undefined) continue
+    if (next.volcano[field] !== v) {
+      next.volcano[field] = v
+      // 密钥不回显在提示里，只说「改了」
+      notes.push(field === 'apiKey' || field === 'accessKey' ? `${field} 已更新` : `volcano.${field} → ${v}`)
+    }
+  }
+  for (const field of ['baseUrl', 'apiKey', 'model', 'voice', 'format']) {
+    const v = str(p.openai?.[field])
+    if (v === undefined) continue
+    if (next.openai[field] !== v) {
+      next.openai[field] = v
+      notes.push(field === 'apiKey' ? 'openai.apiKey 已更新' : `openai.${field} → ${v}`)
+    }
+  }
+
+  if (notes.length === 0) return { ok: true, note: '没有改动。', data: ttsSnapshot() }
+
+  try {
+    const written = saveTtsConfig(next, settingsDataRoot())
+    ttsState.cfg = { ...written, enabled: written.enabled === true }
+    ttsState.lastError = ''
+    buildTts()
+    speech.setEnabled(ttsState.cfg.enabled === true)
+    pushSpeechState()
+    log(`[tts] 配置已保存：${notes.join('、')}`)
+    return { ok: true, note: notes.join('、'), data: ttsSnapshot() }
+  } catch (err) {
+    const msg = `写入失败：${err?.message || err}`
+    log(`[tts] ${msg}`)
+    return { ok: false, error: msg }
+  }
+}
+
+/**
+ * 「让她的声音替她说这句」—— 给闹钟这类**已经有完整句子**的场景用。
+ * 与正文流式那条路互不影响（那条走 feed/finish）。
+ */
+function speakOutLoud(text) {
+  speech.say(text)
+}
+
 function setTurn(running, statusText) {
   if (turnRunning !== running) {
     turnRunning = running
@@ -950,6 +1303,9 @@ function setTurn(running, statusText) {
     if (running) {
       turnMood = null
       sendMood(THINKING_MOOD, '回合开始')
+      // 新回合开始 = 上一轮的话立刻闭嘴。
+      // 不打断的话，她一边「思考」一边还在念上一轮的句子，听起来像两个人在说话。
+      speech.stop('新回合')
     } else {
       sendMood(turnMood ?? settledMood, '回合结束')
     }
@@ -1058,6 +1414,9 @@ function speakReminder(item) {
     return
   }
   putBlock(`a:rem-${item.id}`, 'assistant', text, false)
+  // 到点这句话是**已经完整的**（不是流式），走 say() 一次性切句排队。
+  // 不吃 `enabled` 之外的开关：闹钟是她自己设的，到点该响就得响。
+  speakOutLoud(text)
   try {
     rt.brain.sessionStore.appendMessage(rt.conversation_id, { role: 'assistant', text })
   } catch (err) {
@@ -1075,7 +1434,9 @@ function speakReminder(item) {
  *  2. **不上球**：这一轮不 putBlock。球上显示的是桌面这条会话，手机那边的对话
  *     突然冒到屏幕上会让人以为她在自言自语（而且 blockScope 是桌面会话的）。
  *  3. **只要正文**：mood 标记要剥掉（`resolveMoodText(raw,false).text`），
- *     微信里没有球可以染情绪，把 `[[mood:...]]` 直接发出去他会看到乱码。
+ *     微信里没有球可以染情绪，把 `(mood:...)` 直接发出去他会看到乱码。
+ *     （标记形态只有这一种，别再写成 `[[mood:...]]` 那种说法 —— 那会让人以为
+ *      微信链路另有一套正则，实际两条链路走的是同一份 `src/mood.mjs`。）
  */
 async function runWechatTurn({ text }) {
   const rt = await ensureRuntime()
@@ -1203,15 +1564,22 @@ const rawAssistant = new Map()
  * ⚠️ 不扣住的话，用户会看到 `(mood:hap)` 明晃晃挂在那儿，直到回合结束才消失 ——
  * 标记是给程序看的，漏出来就是 bug。token 流是按 token 切的，`(mood:happy)`
  * 必然被切成好几段，所以这**一定**会发生，不是理论风险。
+ *
+ * ⚠️⚠️ 值域必须和 `src/mood.mjs` 的 `MARKER_SRC` **同步**（连上限都同一个数，现为 48）。
+ *      2026-10-22 放宽 MARKER 让它收中文逗号时，这里差点漏改 ——
+ *      漏改的表现是：完整标记能剥，但流式那几秒会闪出 `（mood:开心，`。
+ *      守这条的是 `probe/mood-stream-marker.mjs`（逐字符喂真实样本，断言任何时刻都不泄漏）。
  */
-const MARKER_TAIL = /[（(]\s*m(?:o(?:o(?:d)?)?)?\s*(?:[:：]\s*[A-Za-z\u4e00-\u9fa5_-]{0,12})?$/i
+const MARKER_TAIL = /[（(]\s*m(?:o(?:o(?:d)?)?)?\s*(?:[:：]\s*[^()（）\n]{0,48})?$/i
 
 /**
  * 她忘了写右括号时，正文末尾会留一个 `(mood:xxx`。
  * 整条消息都结束了，就按标记处理 —— 只认**完整写了 `mood:` 再加值**的形态，
  * 免得把正文末尾一个孤零零的 `(` 吃掉。
+ *
+ * 值域同 `MARKER_SRC`（收中文逗号，上限 48），理由见 `MARKER_TAIL` 上面那段。
  */
-const UNCLOSED_MARKER = /[（(]\s*mood\s*[:：]\s*[A-Za-z\u4e00-\u9fa5_-]{1,12}\s*$/i
+const UNCLOSED_MARKER = /[（(]\s*mood\s*[:：]\s*[^()（）\n]{1,48}\s*$/i
 
 /** 末尾那段还没闭合、可能是标记开头的字符串（没有就返回空串）。 */
 function heldMarkerTail(raw) {
@@ -1237,7 +1605,30 @@ function resolveMoodText(raw, streaming) {
     const unclosed = UNCLOSED_MARKER.exec(text)
     if (unclosed) text = text.slice(0, unclosed.index).replace(/[ \t]+$/, '')
   }
-  return { text, mood: parsed.mood, found: parsed.found }
+  return { text, mood: parsed.mood, found: parsed.found, raw: parsed.raw }
+}
+
+/**
+ * 她已经写了情绪标记，但 `coerceMood()` 认不出这个说法 —— **必须留痕**。
+ *
+ * 2026-10-22 用户报障「情绪 GIF 只有思考和开心」的真凶就是这里**太安静**：
+ * 认不出的标记被 `extractMood()` 剥掉（用户看不见），`mood` 是 `null`
+ * （`if (mood) sendMood(...)` 直接跳过），于是**正文干净、表情不动、日志一个字没有**。
+ * 从外面看就是「贴纸没变」，看不出任何异常 —— 典型的静默退化。
+ *
+ * 只留痕、不改变行为（认不出仍然只剥不认，这是 `mood.mjs` 定的契约）。
+ * 同一个词只报一次，免得流式每个 delta 刷一屏。
+ * ⚠️ 看到这条日志的正确动作：把那个词补进 `src/mood.mjs` 的 ALIASES，
+ *    然后跑 `node probe/mood-alias-audit.mjs` 确认命中率。
+ */
+const unknownMoods = new Set()
+function noteUnknownMood(raw) {
+  const word = typeof raw === 'string' ? raw.trim() : ''
+  if (word === '') return
+  const k = word.toLowerCase()
+  if (unknownMoods.has(k)) return
+  unknownMoods.add(k)
+  log(`情绪标记认不出：(${word}) —— 已剥掉标记但表情没变，该补进 mood.mjs 的 ALIASES`)
 }
 
 /**
@@ -1343,6 +1734,9 @@ const ballServer = createServer((socket) => {
         // 情绪也要补推 —— 球是重开的，它手上没有任何情绪状态。`force` 不能省：
         // 重连前后 currentMood 没变，不加 force 会被去重逻辑吃掉。
         sendMood(currentMood ?? DEFAULT_MOOD, '球重连', true)
+        // 播报开关的状态也要补推：球是重开的，它手上没有这个状态，
+        // 不推的话头像旁那个开关会一直是「关」的样子（而实际上开着）。
+        pushSpeechState()
         // ⚠️ 本地引擎（config.engine === 'local'）下 `legacyReady` **永远是 false** ——
         //   旧后端 2026-10-19 就断了，没有任何人会去把它置真（原因见 switchMode 那段同款注释）。
         //   这里原来只判 `!legacyReady`，于是**每次冷启动、球一重连**就显示
@@ -2269,7 +2663,7 @@ function onBallMessage(msg) {
     }
     // ---------------------------------------------------------------- 双模式（方案 §2 / §5）
     // 球的来信：
-    //   { type:'switch-mode', mode:'chat'|'work' }  切模式（落到该模式最近一条会话）
+    //   { type:'switch-mode', mode:'chat' }  切模式（'work' 已退役，传了会被忽略）
     //   { type:'new-session', mode? }               在指定模式（缺省=当前）新建会话
     // host 的回信：
     //   { type:'mode', mode, agentId }              启动就绪后 / 每次切会话、切模式都推
@@ -2838,7 +3232,11 @@ async function ensureRuntime() {
           if (!files.some((f) => f.path === 'MEMORY.md')) {
             await memstore.write(
               'MEMORY.md',
-              '# 记忆\n\n<!-- 这里放你希望每一轮都记得的事。日常流水写到 journal/。 -->\n',
+              '# 记忆\n\n' +
+                '## 关于他\n\n' +
+                '## 我们之间\n\n' +
+                '## 要紧的事\n\n' +
+                '<!-- 只放每一轮都必须记得的事。日常流水写 journal/；成篇的东西写 about/<主题>.md。 -->\n',
               'init',
             )
             log('[local] 已初始化空白 MEMORY.md')
@@ -2956,7 +3354,40 @@ async function ensureRuntime() {
               return { ok: false, error: String(err?.message || err) }
             }
           }
-          bili = createBiliWatch({ getCookie, getAccount, log, subtitles: biliSubtitles, saveSubtitle })
+          // ★ 关键帧落盘（2026-10-22）。她**没法把图推给用户看**，只能报路径；
+          //   图又只以 base64 活在这一轮的工具结果里 —— 不落盘就等于「看过了，但没人能复核」。
+          //   必须走二进制写：`writeWorkspaceFile` 是 utf8 的，把 JPEG 当文本写会得到一个
+          //   后缀是 .jpg、内容却是 base64 的坏文件（点开一片空白，还不报错）。
+          const saveFrame = async (relPath, base64) => {
+            try {
+              const { writeWorkspaceBinary } = await import('./workspace.mjs')
+              const buf = Buffer.from(String(base64 || ''), 'base64')
+              const r = await writeWorkspaceBinary(relPath, buf)
+              return { ok: true, path: r.path }
+            } catch (err) {
+              log(`[bili] 关键帧落盘失败（不影响她这一轮看图）：${String(err?.message || err)}`)
+              return { ok: false, error: String(err?.message || err) }
+            }
+          }
+          bili = createBiliWatch({
+            getCookie,
+            getAccount,
+            log,
+            subtitles: biliSubtitles,
+            saveSubtitle,
+            saveFrame,
+            // 余额驱动的帧数预算（2026-10-22）：查不到余额就返回 null，工具按「充裕」处理。
+            readBalance: async () => {
+              try {
+                const b = await balance.snapshot()
+                return b?.ok ? Number(b.total) : null
+              } catch {
+                return null
+              }
+            },
+            // 余额 <¥1 时看画面要先问他（复用同一张确认卡，手机上也能答）。
+            askApproval: approvalBroker ? approvalBroker.ask : null,
+          })
 
           // 看成功就记一笔（「她在 B 站看过什么」的账本，抽屉与 bili_history 工具共用）。
           // 用包装而不是让 brain 自己记：账本属于宿主侧数据，工具循环不该管落盘。
@@ -2978,6 +3409,8 @@ async function ensureRuntime() {
                 height: r.meta.height,
                 account: r.meta.account?.uname ?? '',
                 frameTimes: (r.meta.frames ?? []).map((f) => f.t),
+                // 关键帧落在工作区的哪个目录 —— 概览落账时靠它补路径（见 setSummary）
+                framesDir: r.meta.framesDir ?? '',
               })
               // ★ 她自己判定「这条我喜欢」（2026-10-22 用户口径：
               //   「我喜欢的是它自己浏览 B 站看到的视频，而不是我点赞后才加进来的」）。
@@ -2995,7 +3428,11 @@ async function ensureRuntime() {
               void summarizeVideo(r)
                 .then((s) => {
                   if (!s) return
-                  const w = biliHistory.setSummary(r.meta.bvid, r.meta.cid, s)
+                  // framesDir 一并给：setSummary 会在正文后面补「画面存 <dir>/」，
+                  // 这是代码强制的一条（她没法把图推给用户，只能报路径）。
+                  const w = biliHistory.setSummary(r.meta.bvid, r.meta.cid, s, {
+                    framesDir: r.meta.framesDir ?? '',
+                  })
                   if (w?.ok) log(`[bili] 概览写好了：${s.slice(0, 40)}`)
                 })
                 .catch((err) => log(`[bili] 概览生成异常：${err?.message || err}`))
@@ -3037,6 +3474,9 @@ async function ensureRuntime() {
           //   （记忆里的老坑：工具给了、指南没提 ⇒ 她会说「我做不到」）。
           biliAct: biliActionsRef ? runBiliAct : null,
           balance,
+          // 嗓子的状态通道：每轮告诉她「这轮会不会真出声 / 上一句有没有念失败」。
+          // 语音是宿主念的、结果不回模型，不给这一行她只能默认「他听见了」。
+          voice,
           policy,
           schedule: scheduleStore,
           // ★ I5：brain 的 finally 会调这里 —— 回合结束的唯一出口
@@ -3280,6 +3720,9 @@ async function runLocalTurn(rt, item) {
     for (const [k, rec] of blocks) {
       if (rec.running) resend(k, rec.kind, rec.text, false)
     }
+    // 播报收尾：把没说完的残句吐出来（不然一句话结尾没句号，就永远少半截）。
+    // 必须放在 resend 之后 —— 顺序反了不影响正确性，但日志里「话没念完」的原因会更难读。
+    speech.finish()
     markTurnResponse()
     setTurn(false, '')
   }
@@ -3323,13 +3766,23 @@ async function runLocalTurn(rt, item) {
       switch (ev.type) {
         case 'assistant': {
           assistantRaw += ev.text
-          const { text, mood, found } = resolveMoodText(assistantRaw, true)
+          const { text, mood, found, raw: moodRaw } = resolveMoodText(assistantRaw, true)
+          // 播报吃**增量**而不是 `text`：`text` 每次都是全量，重复喂会念重。
+          // 情绪标记由 speech.mjs 自己再剥一遍（它那条正则比 mood.mjs 宽，
+          // 保证「mood 冒号」这几个字不会被念出来）。
+          speech.feed(ev.text)
+          // 这条守卫只防「正文里只有情绪标记」的空气泡；**整轮一个字都没有**（模型把预算
+          // 全烧在 reasoning 上）的情况由 brain 的 notice 事件兜底上屏（见 brain.mjs 空正文分支），
+          // 所以这里 break 掉不会让失败变成静默。
           if (text === '' && !blocks.has(key(assistantKey))) break
           putBlock(assistantKey, 'assistant', text, true)
           lastAssistantKey = key(assistantKey)
           if (found && mood) {
             turnMood = mood
             sendMood(mood, '正文标记')
+          } else if (found) {
+            // 写了标记但认不出：正文已剥干净，表情没动 —— 留痕（见 noteUnknownMood）
+            noteUnknownMood(moodRaw)
           }
           break
         }
@@ -3360,7 +3813,10 @@ async function runLocalTurn(rt, item) {
           break
         }
         case 'done': {
-          log(`[local] 回合结束 ${item.id} hash=${ev.promptHash ?? '(无)'}`)
+          // ★ 2026-10-22：finish_reason 与「空正文」必须落进日志。
+          //   此前 llm.mjs:231 产出了 stopReason 却全链路无人消费，一次「思考=1810 / 输出=1810、
+          //   content 为 0」的回合在日志里只剩「思考==输出」这个巧合可辨认。
+          log(`[local] 回合结束 ${item.id} hash=${ev.promptHash ?? '(无)'} finish=${ev.stopReason ?? '(未知)'}${ev.emptyContent ? ' 空正文' : ''}`)
           finalize(ev.usage)
           break
         }
@@ -3899,7 +4355,7 @@ async function onNewConversation(targetMode = mode) {
  *   5. blockScope = 新 conv   —— **必须在放块之前**，否则 key 前缀还是旧的
  *   6. send session + sendMode
  *
- * @param {'chat'|'work'} target
+ * @param {string} target（当前只有 'chat'；'work' 已退役，传了会被 MODES 守卫拒掉）
  * @param {{open?: string}} [opts] `open='new'` 新建；`open=<sessionId>` 指定；省略=最近一条
  */
 async function switchMode(target, opts = {}) {
@@ -4393,7 +4849,9 @@ function onDelta(delta) {
     // 这样流式过程中被扣住的半截标记，在下一个 delta 到达时能自己补回来。
     const raw = (rawAssistant.get(k) ?? '') + add
     rawAssistant.set(k, raw)
-    const { text, mood, found } = resolveMoodText(raw, true)
+    // 播报：喂增量（与 local 路径同一条纪律 —— `text` 是全量，重复喂会念重）
+    speech.feed(add)
+    const { text, mood, found, raw: moodRaw } = resolveMoodText(raw, true)
     // 整条回复只有一个标记、没有正文时，别造一个空气泡出来。
     // （lastAssistantKey 仍会指过去，但 markTurnResponse 见到块不存在会直接返回。）
     if (text === '' && !blocks.has(k)) return
@@ -4401,6 +4859,7 @@ function onDelta(delta) {
     if (found) {
       turnMood = mood // 认不出的情绪：只剥标记、不改情绪，所以这里可能是 null
       if (mood) sendMood(mood, '正文标记')
+      else noteUnknownMood(moodRaw) // 认不出也要留痕，否则就是静默丢表情
     }
     return
   }
@@ -4445,6 +4904,8 @@ function onDelta(delta) {
       if (text !== rec.text) resend(k, 'assistant', text, false)
     }
     settle(() => true) // 回合收尾，没有还该转的块了
+    // 播报收尾（与 local 路径的 finalize 同一个理由：残句必须放出来）
+    speech.finish()
     // 标记本轮最终答案。
     //
     // ⚠️ **只降级本轮的块，绝不能碰历史轮次**（实测踩过）。
@@ -4623,6 +5084,53 @@ async function boot() {
   ipcMain.handle('orb:api-config-set', (_event, patch) => applyApiConfig(patch))
   log('[settings] 设置通道已注册（orb:api-config-get / set）')
 
+  // ── 语音播报（2026-10-22）──
+  // 为什么单独两条通道、不并进 api-config：
+  //   ① tts.json 是**另一个文件**、另一种嵌套形状（provider 段各自一组字段），
+  //      塞进 applyApiConfig 会让那个函数同时管四种文件，失败归因变难；
+  //   ② 开关（头像旁那颗按钮）与设置页是**同一个真源**，必须走同一条写入口，
+  //      否则两处会各写一份、然后互相覆盖。
+  ipcMain.handle('orb:tts-get', () => ttsSnapshot())
+  ipcMain.handle('orb:tts-set', (_event, patch) => applyTtsPatch(patch))
+  ipcMain.handle('orb:speech-toggle', (_event, on) => {
+    const next = on === true
+    if (next === (ttsState.cfg.enabled === true)) return speechState()
+    try {
+      saveTtsConfig({ ...ttsState.cfg, enabled: next }, settingsDataRoot())
+      log(`[tts] 播报开关 → ${next ? '开' : '关'}`)
+    } catch (err) {
+      ttsState.lastError = `开关没能写盘：${err?.message || err}`
+      log(`[tts] ${ttsState.lastError}`)
+      return { ...speechState(), lastError: ttsState.lastError }
+    }
+    return refreshTts()
+  })
+  // 试听：固定一句话，走完整条链路（合成 → IPC → 渲染层播放）。
+  // 不听一下就没法确认「配的 key 是不是真的能出声」—— 这是设置页唯一的验收手段。
+  ipcMain.handle('orb:speech-test', async () => {
+    const tts = ttsState.tts ?? buildTts()
+    if (!tts) return { ok: false, error: ttsState.lastError || 'TTS 没配好' }
+    const text = '喂，听得到吗？我是这样说话的。'
+    const r = await tts.speak(text)
+    if (!r.ok) {
+      ttsState.lastError = r.error ?? '合成失败'
+      return { ok: false, error: ttsState.lastError }
+    }
+    // 试听**不受 enabled 开关影响**：用户就是想先听一耳朵再决定开不开。
+    send({
+      type: 'speech',
+      gen: -1,
+      seq: 0,
+      mime: r.mime ?? 'audio/mpeg',
+      audio: r.audio.toString('base64'),
+      chars: text.length,
+      ms: r.ms ?? 0,
+      preview: true,
+    })
+    return { ok: true, ms: r.ms ?? 0, bytes: r.audio.length ?? 0 }
+  })
+  log('[tts] 播报通道已注册（orb:tts-get / set / speech-toggle / speech-test）')
+
   // ── B 站扫码登录的四个动作（2026-10-21）──
   // 为什么不并进上面的 set：扫码是「动作」不是「字段」—— 它有中间态（等待扫码/已扫待确认/
   // 已过期），要轮询、要有内存里的 qrcode_key，塞进 patch 那种一次写盘的形状里会丢状态。
@@ -4639,6 +5147,13 @@ async function boot() {
     const bili = await ensureBiliAuth()
     return await bili.logout()
   })
+  // ── 微信扫码配对（2026-10-22，开源版必备）──
+  // 与 B 站扫码同一种形状：`start` 取二维码 → 渲染层每 2 秒 `poll` → confirmed 落盘。
+  // 不并进 api-config-set 的理由也一样：它有中间态（等待/已扫/过期），要有内存里的 qrcode。
+  ipcMain.handle('orb:wechat-pair-start', async () => pairWechat('start'))
+  ipcMain.handle('orb:wechat-pair-poll', async (_event, qrcodeKey) => pairWechat('poll', String(qrcodeKey ?? '')))
+  log('[settings] 微信配对通道已注册（orb:wechat-pair-start / poll）')
+
   // 「看过的视频」抽屉：只读本地账本（data/bili-history.json），不联网。
   // ★ 与 bili_watch 共用同一份数据 —— 抽屉里看到的和 `bili_history` 工具读到的是同一个东西。
   ipcMain.handle('orb:bili-history', (_event, opts) => {

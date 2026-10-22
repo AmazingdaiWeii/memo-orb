@@ -13,16 +13,21 @@
  *   1. 直链不缓存：URL 里带 deadline，过期后 `<video>` 静默失败；每次 watch 都重新 playurl。
  *   2. 取帧前必须 `pickReachableUrl`：playurl 的头号 baseUrl 常是 mcdn 节点，本机实测
  *      会 10s 连接超时（备用 upos 镜像能通）；不先探一下就会白等一场超时。
- *   3. 帧数硬上限 8：关键帧是整张原生分辨率图，一次扔太多会把模型上下文灌爆。
+ *   3. 帧数按预算算、硬上限 60：单帧 480×270 约 300 视觉 token，60 帧 ≈ 两万，再往上就是挤上下文了。
  */
 
 import { fetchView, fetchPlayurl, pickReachableUrl, QUALITY_LABEL } from './bili-media.mjs'
 import { pickTrack, checkTimeline, subsToText } from './bili-subtitle.mjs'
 
-/** 一次最多给模型看几张图（图片走 user 消息，成本按张算）。 */
-export const MAX_FRAMES = 8
+/**
+ * 一回合最多取几张关键帧。
+ * 2026-10-22 用户拍板：8 → 60。旧上限的代价是「一部长片只看到五帧，等于没看」；
+ * 60 帧按 480×270 算约两万视觉 token，还在单回合可承受的范围内。
+ * ★ 这里的数必须和 `brain.mjs` 的 `MAX_TOOL_IMAGES` 一起改，否则图会在注入那一步被悄悄砍掉。
+ */
+export const MAX_FRAMES = 60
 
-/** 没指定看法、也没给帧数时：只回元信息（最便宜）。 */
+/** 没算出来时的兜底张数（正常都会被 planFrames 覆盖）。 */
 export const DEFAULT_FRAMES = 6
 
 /** 缺省输出尺寸上限：再大对「看清字幕/画面」没增益，只是白烧 token。 */
@@ -33,31 +38,72 @@ export const MAX_SUB_CHARS = 12000
 /** 落盘时先给模型看多少行（它能自己 read_file 续读）。 */
 export const SUB_PREVIEW_LINES = 120
 
+// ── 帧数预算：按「余额 × 时长」算，不再给死档位（2026-10-22 用户拍板）─────────
+//
+// 可量化锚点（用户原话）：「一个 5 分钟的视频，预算是谷时花费 1 毛钱」。
+// 5 分钟 = 60 帧（B 站 GOP 实测 5 秒一个关键帧），反推单帧 ≈ ¥0.0016（60 帧 ≈ ¥0.096）。
+//
+// ★ 2026-10-22 二次拍板：帧数改由**她自己**定（`frames`，0~60），这里的公式只是**兜底**。
+//   兜底从每分钟 ¥0.02 降到 ¥0.01（5 分钟片 60 → 30 帧 ≈ ¥0.05）：自动值宁少勿多，
+//   「这条需要几张」由她按要回答的问题估，比她看不见的公式准。
+//
+// 三档余额：
+//   · 余额 ≥ ¥5        → 兜底每分钟 ¥0.01（5 分钟片 ≈ 30 帧 ≈ ¥0.05）
+//   · ¥1 ≤ 余额 < ¥5   → 降到每分钟 ¥0.005（同样的片子约 15 帧）
+//   · 余额 < ¥1        → 不自动看：弹审批卡，他点了允许才继续（见 watch() 里的闸门）
+//
+// 物理上限：全片可看帧数 = 时长 ÷ 5（GOP 密度）——预算再够也不会取到不存在的帧。
+export const FRAME_PRICE = 0.0016 // 480×270 一帧的钱（元；含这一帧被读进上下文）
+export const FRAME_PRICE_HD = 0.006 // 960×540 一帧（点名 times 时给原生）
+export const BUDGET_PER_MIN = 0.01 // 余额充足时的兜底预算（她给了 frames 就不用这个）
+export const BUDGET_PER_MIN_TIGHT = 0.005 // 余额 <¥5 时每分钟预算
+export const BALANCE_TIGHT = 5 // 低于这个数开始省
+export const BALANCE_NEED_APPROVAL = 1 // 低于这个数不再自动看，要审批
+export const GOP_SECONDS = 5 // B 站关键帧间隔（实测 sidx 每段 5.0s）
+
 /**
- * 三档看法（2026-10-21 用户拍板：不做菜单让用户选，交给她按余额自己决定；
- * 2026-10-22 补「轻松看」—— 只读字幕，不取一张图）。
+ * 算这一趟该取几帧。
  *
- * 为什么不是设计文档里的「雪碧图 A 档」：A 档（160×90）确实更省字节，但它省的是**下载**，
- * 而真正烧钱的是**视觉 token**（与像素数成正比）。按 480×270 出两帧，字节量与 A 档的
- * 六格雪碧图同一量级，文字却清楚得多 —— 同样的钱看到更多东西。
+ * @param {{duration?: number, balance?: number|null, hd?: boolean}} o
+ *        duration 秒；balance 元（null/查不到 = 按充裕处理）；hd 是否原生分辨率
+ * @returns {{frames:number, budgetYuan:number, pricePerFrame:number, perMin:number, byBudget:number, byGop:number, tight:boolean}}
+ */
+export function planFrames({ duration = 0, balance = null, hd = false } = {}) {
+  const sec = Math.max(0, Number(duration) || 0)
+  const money = Number.isFinite(Number(balance)) && balance !== null ? Number(balance) : null
+  const tight = money !== null && money < BALANCE_TIGHT
+  const perMin = tight ? BUDGET_PER_MIN_TIGHT : BUDGET_PER_MIN
+  const pricePerFrame = hd ? FRAME_PRICE_HD : FRAME_PRICE
+  const budgetYuan = (sec / 60) * perMin
+  const byBudget = Math.floor(budgetYuan / pricePerFrame)
+  // 关键帧物理上限：5 秒一个，向上取整（短片也不会算成 0）
+  const byGop = Math.ceil(sec / GOP_SECONDS)
+  const frames = Math.max(1, Math.min(MAX_FRAMES, byBudget, byGop))
+  return { frames, budgetYuan, pricePerFrame, perMin, byBudget, byGop, tight }
+}
+
+/**
+ * 两个入口（2026-10-22 用户拍板：从三档砍到两档，不再让她在档位之间挑）。
  *
- * 所以：
- *   - 「轻松看」= 0 帧，只把字幕读下来（B 站自带 AI 字幕，覆盖约八成热门片，
- *     **几乎不花钱**：字幕是纯文本，比一张图便宜一个数量级）；
- *   - 「快速看」= 少取两帧 + 缩到 480×270；
- *   - 「认真看」= 多取几帧 + 原生上限。
- * 三者共用同一条取帧/取字幕链路，没有第二套代码路径，也就没有第二套 bug。
+ *   · `subtitle` = 只读字幕，一张图不取（几乎不花钱，先试它）；
+ *   · `watch`    = 看画面，帧数由 planFrames 按「余额 × 时长」算，480×270。
+ *
+ * 想看得更清不用换档位：给 `times` 点名，那几张按原生 960×540 给。
+ * 两档共用同一条取帧/取字幕链路，没有第二套代码路径，也就没有第二套 bug。
  */
 export const WATCH_MODES = {
-  subtitle: { frames: 0, maxOut: DEFAULT_MAX_OUT, label: '轻松看（读字幕）', subtitles: true },
-  quick: { frames: 2, maxOut: { w: 480, h: 270 }, label: '快速看' },
-  thorough: { frames: 5, maxOut: { w: 960, h: 540 }, label: '认真看' },
+  subtitle: { frames: 0, maxOut: DEFAULT_MAX_OUT, label: '轻松看（只读字幕）', subtitles: true },
+  watch: { frames: null, maxOut: { w: 480, h: 270 }, label: '看画面', plan: true },
 }
+
+/** 老档位名留别名：她自己的记忆/旧会话里可能还写着 quick / thorough。 */
+const MODE_ALIASES = { quick: 'watch', thorough: 'watch' }
 
 /** 把 `args.mode` 认成合法档位名（认不出给空串，交给调用方走默认）。 */
 export function parseWatchMode(input) {
   const s = String(input ?? '').trim().toLowerCase()
-  return Object.prototype.hasOwnProperty.call(WATCH_MODES, s) ? s : ''
+  if (Object.prototype.hasOwnProperty.call(WATCH_MODES, s)) return s
+  return MODE_ALIASES[s] || ''
 }
 
 /**
@@ -125,6 +171,7 @@ function qualityText(play) {
  * @param {boolean} [o.probeReachable] 是否先探直链可达（默认 true）
  * @param {object} [o.subtitles] `createBiliSubtitle()` 的实例（取字幕轨/下字幕）
  * @param {Function} [o.saveSubtitle] `(relPath, text) => Promise<{ok, path}>`，长字幕落盘用
+ * @param {Function} [o.saveFrame] `(relPath, base64) => Promise<{ok, path}>`，关键帧落盘用
  * @returns {{watch: Function, describe: Function}}
  */
 export function createBiliWatch({
@@ -135,6 +182,11 @@ export function createBiliWatch({
   probeReachable = true,
   subtitles = null,
   saveSubtitle = null,
+  saveFrame = null,
+  /** 查当前余额（元）。null 或抛错 = 查不到，按「充裕」处理。 */
+  readBalance = null,
+  /** 审批闸门：余额 < ¥1 时看画面要先问他。签名同 approval.mjs 的 ask。 */
+  askApproval = null,
 } = {}) {
   async function cookie() {
     try {
@@ -305,9 +357,9 @@ export function createBiliWatch({
    * @param {object} args
    * @param {string} args.url        BV 号 / av 号 / 整条链接
    * @param {number} [args.page]     分 P（不给就从 URL 的 ?p= 读，再不然 1）
-   * @param {'subtitle'|'quick'|'thorough'} [args.mode] 看法档位：subtitle=只读字幕 / quick=省（2 帧 480×270）/ thorough=看清（5 帧）
+   * @param {'subtitle'|'watch'} [args.mode] 看法档位：subtitle=只读字幕 / watch=看画面（帧数按余额×时长自动算，480×270）
    * @param {boolean} [args.subtitles] 顺带把字幕也读下来（任意档位可叠加；subtitle 档自动为 true）
-   * @param {number} [args.frames]   取几帧（0 = 不取，上限 8）。给了就压过 mode 的默认帧数
+   * @param {number} [args.frames]   取几帧（0 = 不取，上限 60）。给了就压过自动算出来的帧数
    * @param {number[]|string} [args.times] 指定秒数（给了就按这些点吸附到最近关键帧）
    * @param {{w:number,h:number}} [args.maxOut]
    * @param {number} [args.quality]  指定画质 id（默认让接口挑最优）
@@ -329,7 +381,7 @@ export function createBiliWatch({
     if (!view.ok) return { ok: false, text: `认片失败：${view.error}` }
 
     // 「轻松看」= 只读字幕，**连 playurl 都不打**（省一次往返，也不需要画质）。
-    // 叠加档（quick/thorough + subtitles:true）才两个都要。
+    // 叠加档（watch + subtitles:true）才两个都要。
     const subtitleOnly = mode === 'subtitle'
     const wantSubs = subtitleOnly || args.subtitles === true
 
@@ -354,10 +406,56 @@ export function createBiliWatch({
       `aid ${view.aid} / cid ${view.cid}`,
     ]
 
+    const times = parseTimes(args.times)
+
+    // 余额（查不到=null：按「充裕」处理，不因为拿不到数字就把她卡住）
+    let money = null
+    if (typeof readBalance === 'function') {
+      try {
+        const b = await readBalance()
+        if (b !== null && b !== undefined && Number.isFinite(Number(b))) money = Number(b)
+      } catch {
+        /* 拿不到就当他有 */
+      }
+    }
+
+    // ★ 余额闸门（2026-10-22 用户拍板）：< ¥1 不再自动看，必须他点「允许」。
+    //   只拦「看画面」，字幕档照放 —— 读字幕几乎不花钱，没钱的时候更不能连字都不让读。
+    const explicitZero =
+      args.frames !== undefined &&
+      args.frames !== null &&
+      String(args.frames).trim() !== '' &&
+      Number(args.frames) === 0
+    const wantsPictures =
+      !subtitleOnly && !explicitZero && (mode === 'watch' || times.length > 0 || Number(args.frames) > 0)
+    if (wantsPictures && money !== null && money < BALANCE_NEED_APPROVAL) {
+      const verdict =
+        typeof askApproval === 'function'
+          ? await askApproval({
+              toolName: 'bili_watch',
+              args: { url: ref.bvid || String(view.aid ?? ''), mode, frames: args.frames },
+              reason: `余额只剩 ¥${money.toFixed(2)}（低于 ¥${BALANCE_NEED_APPROVAL}），看画面要先问过你`,
+            })
+          : { approved: false, reason: '没有接上审批通道' }
+      if (!verdict?.approved) {
+        return {
+          ok: false,
+          text:
+            `余额只剩 ¥${money.toFixed(2)}，看画面这一步要你点头才能继续 —— 这次没放行（${verdict?.reason || '被拦了'}）。\n` +
+            '省钱的路子：`mode:"subtitle"` 只读字幕（不取图、不问审批）；或者等他允许/充值之后再看画面。',
+        }
+      }
+    }
+
+    // watch 档的帧数先按「余额 × 时长」算好；点名（times）时不走这个公式。
+    const plan =
+      !subtitleOnly && WATCH_MODES[mode]?.plan && times.length === 0
+        ? planFrames({ duration: view.duration, balance: money })
+        : null
     const want = (() => {
-      // 帧数的优先级：显式 `frames`（含 0 = 只看元信息）> `mode` 档位 > 0（只回元信息）。
+      // 帧数的优先级：显式 `frames`（含 0 = 只看元信息）> `mode` 档位（watch 由预算算）> 0。
       // ★ 必须判 `undefined` 而不是 `Number(x) || 0`：`frames:0` 是合法且重要的取值，
-      //   用 `||` 会把「我要只看元信息」悄悄升级成「取 5 帧」。
+      //   用 `||` 会把「我要只看元信息」悄悄升级成「按预算取一大把」。
       // ★ 字幕档强制 0：那一档的卖点就是「一张图都不取」。
       if (subtitleOnly) return 0
       const raw = args.frames
@@ -365,10 +463,14 @@ export function createBiliWatch({
         return Math.min(Math.max(Number(raw), 0), MAX_FRAMES)
       }
       const preset = WATCH_MODES[mode]
+      if (preset?.plan) {
+        if (times.length) return Math.min(times.length, MAX_FRAMES)
+        return plan ? plan.frames : DEFAULT_FRAMES
+      }
       return preset ? preset.frames : 0
     })()
-    const maxOut = args.maxOut ?? (WATCH_MODES[mode]?.maxOut || DEFAULT_MAX_OUT)
-    const times = parseTimes(args.times)
+    // 点名（times）时给原生分辨率，其余按档位（watch = 480×270）
+    const maxOut = args.maxOut ?? (times.length ? DEFAULT_MAX_OUT : WATCH_MODES[mode]?.maxOut || DEFAULT_MAX_OUT)
     const meta = {
       ok: true,
       title: view.title,
@@ -406,7 +508,7 @@ export function createBiliWatch({
         sub.tail,
         '',
         sub.ok
-          ? '以上是这条视频字幕的全部内容（带时间轴）。要画面就用 mode:"quick"；这只是读字，不等于看了画面。'
+          ? '以上是这条视频字幕的全部内容（带时间轴）。要看画面就用 mode:"watch"；这只是读字，不等于看了画面。'
           : '这一趟只有字幕这一条路，字幕没取到就没有别的可说了 —— 别编内容。',
       ]
         .filter((x) => x !== undefined && x !== null && x !== '')
@@ -421,7 +523,7 @@ export function createBiliWatch({
         ok: true,
         text: [
           ...head,
-          '（没要帧，只看了元信息 —— 这是最省的一档。要看画面：mode:"quick" 两帧 480×270 最便宜，mode:"thorough" 看清细节；有字幕的片子可以 mode:"subtitle" 只读字幕。）',
+          '（没要帧，只看了元信息 —— 这是最省的一档。要看画面：mode:"watch" 会按余额和时长自己算帧数；有字幕的片子先用 mode:"subtitle" 只读字幕。）',
           ...subTail,
         ].join('\n'),
         meta,
@@ -469,33 +571,75 @@ export function createBiliWatch({
 
     const images = []
     const lines = []
-    for (const f of got.frames ?? []) {
+    // ★ 关键帧**必须落盘**（2026-10-22 用户定的预警：涉及画面的摘要要带得出落盘路径）。
+    //   原因不是「备份」：图片只以 base64 活在这一次的工具结果里，回合结束就没了。
+    //   而她**没法把图推给用户看**（只能报路径让他自己点开）—— 不落盘，等于这一趟
+    //   她说过「画面里有个…」之后再没有任何人能复核，她自己下次也调不出来。
+    //   目录按 bvid + 分P 分开，重复看同一条会覆盖同名文件（同一时刻同一帧，覆盖是期望行为）。
+    const framesDir = `bili/${view.bvid}-p${view.page || 1}`
+    let savedCount = 0
+    for (const [i, f] of (got.frames ?? []).entries()) {
       const comma = String(f.dataUrl ?? '').indexOf(',')
       if (comma < 0) continue
-      images.push({ mimeType: 'image/jpeg', data: f.dataUrl.slice(comma + 1) })
-      lines.push(`- ${Number(f.t).toFixed(2)}s（${f.w}×${f.h}，${Math.round((f.bytes ?? 0) / 1024)}KB）`)
-      meta.frames.push({ t: f.t, w: f.w, h: f.h, bytes: f.bytes })
+      const base64 = f.dataUrl.slice(comma + 1)
+      const t = Number(f.t)
+      const rel = `${framesDir}/f${String(i + 1).padStart(2, '0')}-${t.toFixed(2)}s.jpg`
+      let savedPath = ''
+      if (typeof saveFrame === 'function') {
+        try {
+          const w = await saveFrame(rel, base64)
+          if (w?.ok) {
+            savedPath = w.path || rel
+            savedCount += 1
+          }
+        } catch (err) {
+          log(`[bili] 关键帧落盘失败（不影响这一轮看图）：${String(err?.message || err)}`)
+        }
+      }
+      images.push({
+        mimeType: 'image/jpeg',
+        data: base64,
+        ...(savedPath ? { path: savedPath } : {}),
+      })
+      lines.push(
+        `- ${t.toFixed(2)}s（${f.w}×${f.h}，${Math.round((f.bytes ?? 0) / 1024)}KB）` +
+          (savedPath ? ` → \`${savedPath}\`` : '（未落盘）'),
+      )
+      meta.frames.push({ t: f.t, w: f.w, h: f.h, bytes: f.bytes, ...(savedPath ? { path: savedPath } : {}) })
     }
     meta.stats = { ...(got.stats ?? {}), elapsedMs: Date.now() - t0 }
+    if (savedCount > 0) meta.framesDir = framesDir
 
     const s = got.stats ?? {}
     const ratio = Number.isFinite(s.ratio) ? `${(s.ratio * 100).toFixed(1)}%` : '?'
     // 把「这一趟花了多少画面」明写出来：她后面要跟用户解释成本，自己也得有账。
     const shape = `${images.length} 帧 @ ${maxOut.w}×${maxOut.h} 上限`
+    const spent = plan ? `，约 ¥${(images.length * plan.pricePerFrame).toFixed(3)}` : ''
     const modeLine = mode
-      ? `看法：${WATCH_MODES[mode].label}（${shape}）—— 想更省就 subtitle / quick / frames:0，想看清就 thorough。`
-      : `看法：按你指定的（${shape}）。`
+      ? `看法：${WATCH_MODES[mode].label}（${shape}${spent}）` +
+        (plan
+          ? ` —— 帧数是按余额 ¥${money} / 时长 ${view.duration}s 算出来的。想更省就 subtitle 或 frames:0；想看得更清就给 times 点几个时间点（那几张按原生 960×540 给）。`
+          : ' —— 想更省就 subtitle 或 frames:0，想看得更清就单独给 times 点名时间点。')
+      : `看法：按你指定的（${shape}${spent}）。`
     const text = [
       ...head,
       modeLine,
       `取了 ${images.length} 张关键帧（只下了整片的 ${ratio}，${((s.bytes ?? 0) / 1048576).toFixed(2)}MB）：`,
       ...lines,
-      '画面已作为图片附在下面（同一条消息里，最多 8 张）。',
+      `画面已作为图片附在下面（同一条消息里，最多 ${MAX_FRAMES} 张；这一趟 ${images.length} 张）。`,
+      // 这句是给「他看不到图」准备的：她只能报路径。所以路径必须出现在**结果正文**里，
+      // 不能只藏在 meta 里（她对 meta 一无所知）。
+      savedCount > 0
+        ? `这些帧已存进工作区 \`${framesDir}/\`：你**没法把图推给他看**，要让他看就报上面的路径。**注意：read_file 是纯文字工具，打不开 jpg —— 下次想再用这些画面，只能重新 bili_watch 取一次。**`
+        : '⚠️ 这一趟的帧没存进磁盘（落盘失败）：这一轮你能看，但回合结束后就没了，也没法让他看。要留证就重看一次。',
       ...(sub ? ['', `字幕：${sub.summary}`, sub.body, sub.tail] : []),
     ].join('\n')
 
     meta.mode = mode || 'custom'
     meta.maxOut = maxOut
+    /** 这一趟的预算账（她对 meta 一无所知，但日志/探针要用）。 */
+    meta.balance = money
+    meta.plan = plan
     return { ok: true, text, images, meta }
   }
 
@@ -504,10 +648,22 @@ export function createBiliWatch({
       frames: DEFAULT_FRAMES,
       maxFrames: MAX_FRAMES,
       maxOut: DEFAULT_MAX_OUT,
+      /** 帧数预算：按「余额 × 时长」算，不再有死档位。 */
+      budget: {
+        perMin: BUDGET_PER_MIN,
+        perMinTight: BUDGET_PER_MIN_TIGHT,
+        tightBelow: BALANCE_TIGHT,
+        needApprovalBelow: BALANCE_NEED_APPROVAL,
+        pricePerFrame: FRAME_PRICE,
+        pricePerFrameHd: FRAME_PRICE_HD,
+        gopSeconds: GOP_SECONDS,
+        /** 锚点样例：5 分钟片、余额充足 → 60 帧 ≈ ¥0.1 */
+        sample5min: planFrames({ duration: 300, balance: 100 }),
+      },
       modes: Object.fromEntries(
         Object.entries(WATCH_MODES).map(([k, v]) => [
           k,
-          { frames: v.frames, maxOut: v.maxOut, label: v.label, subtitles: v.subtitles === true },
+          { frames: v.frames, maxOut: v.maxOut, label: v.label, subtitles: v.subtitles === true, plan: v.plan === true },
         ]),
       ),
       /** 字幕能力有没有接上（没接上时 subtitle 档会如实说「取不到」） */
