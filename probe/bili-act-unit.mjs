@@ -71,7 +71,16 @@ check('B11 34003 是「数量不对」，别写成「被限流」', /数量/.tes
 check('B12 反向对照：-111 仍然指 csrf（B9 不是把所有码都改成同一句话）', /csrf/i.test(e111), e111)
 
 // ── 5. 指南版本必须跟着变（不然老会话继续用旧快照） ─────────────────────────
-check('B13 GUIDE_VERSION 已 bump 到 10（新增了 bili_act 那一节）', GUIDE_VERSION === 10, String(GUIDE_VERSION))
+check('B13 GUIDE_VERSION 已经抬到 11 以后（这一轮加了 bili_act + 「轻松看」）', GUIDE_VERSION >= 11, String(GUIDE_VERSION))
+check(
+  'B14 指南里写了「轻松看」这一档（否则她会一直只想到取帧，字幕能力形同不存在）',
+  /mode:"subtitle"/.test(buildToolGuide({ bili: true })),
+  '指南 B 站段必须点名 mode:"subtitle"',
+)
+check(
+  'B15 指南点明了「字幕 ≠ 画面」（读字不等于看见，别让她把字幕说成画面）',
+  /字幕是文字稿/.test(buildToolGuide({ bili: true })),
+)
 
 console.log('')
 console.log(`汇总：${pass} 通过 / ${fail} 失败`)

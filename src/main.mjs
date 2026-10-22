@@ -2937,7 +2937,26 @@ async function ensureRuntime() {
           // 点赞/投币/收藏/评论：纯 HTTP，用同一份扫码 cookie 做鉴权（不挂网页）。
           const { createBiliActions } = await import('./bili-actions.mjs')
           biliActionsRef = createBiliActions({ getCookie, log })
-          bili = createBiliWatch({ getCookie, getAccount, log })
+          // ★ 字幕（「轻松看」档）。两条必须一起给：
+          //   · WBI 签名器 —— 老的 player/v2 对未签名请求会返回**别人视频的字幕**
+          //     （实测 8/8 全错），签过名的 player/wbi/v2 才是对的；见 src/wbi.mjs 头注释。
+          //   · 落盘 —— 长字幕（>12000 字）不整段塞给模型，写进工作区让她按需 read_file。
+          const { createWbi } = await import('./wbi.mjs')
+          const { createBiliSubtitle } = await import('./bili-subtitle.mjs')
+          const wbi = createWbi({ getCookie, log })
+          const biliSubtitles = createBiliSubtitle({ getCookie, sign: wbi.sign, log })
+          const saveSubtitle = async (relPath, text) => {
+            try {
+              const { writeWorkspaceFile } = await import('./workspace.mjs')
+              const r = await writeWorkspaceFile(relPath, text)
+              log(`[bili] 长字幕已存工作区：${r.path}（${Math.round(r.bytes / 1024)}KB）`)
+              return { ok: true, path: r.path }
+            } catch (err) {
+              log(`[bili] 长字幕落盘失败（不影响已取到的正文）：${String(err?.message || err)}`)
+              return { ok: false, error: String(err?.message || err) }
+            }
+          }
+          bili = createBiliWatch({ getCookie, getAccount, log, subtitles: biliSubtitles, saveSubtitle })
 
           // 看成功就记一笔（「她在 B 站看过什么」的账本，抽屉与 bili_history 工具共用）。
           // 用包装而不是让 brain 自己记：账本属于宿主侧数据，工具循环不该管落盘。

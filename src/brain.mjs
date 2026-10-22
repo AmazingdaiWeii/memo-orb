@@ -346,14 +346,18 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
       function: {
         name: 'bili_watch',
         description:
-          '看一条 B 站视频：先给标题/时长/画质，要画面时再取几张关键帧（图片会附在你下一条消息里，你真的能看见）。' +
-          '**认真看还是快速看由你定，别让用户选**：`mode:"quick"` 两帧 480×270（最省），' +
-          '`mode:"thorough"` 五帧原生上限（看小字/代码/界面细节）。拿不准就看余额：不多时默认 quick，并在回话里说一句。' +
+          '看一条 B 站视频。三档，**由你按需要和余额自己挑，别让用户选**：\n' +
+          '· `mode:"subtitle"`（轻松看）= 不取一张图，只把**字幕正文**读下来（带时间轴）。' +
+          'B 站自带 AI 字幕，覆盖大多数热门片，纯文本几乎不花钱 —— **想知道「讲了什么」先用它**。' +
+          '拿不到字幕时它会明说「这条没有字幕轨」，这时再退到 quick。\n' +
+          '· `mode:"quick"` = 2 帧 480×270（要看画面又省钱）。\n' +
+          '· `mode:"thorough"` = 5 帧原生上限（看小字/代码/界面细节）。\n' +
+          '`subtitles:true` 可以和 quick/thorough 叠加（既看画面又要字幕）。\n' +
           '结果第一行会写清这次是不是用了用户本人登录的 B 站账号（且是否刚向 B 站核实过）与实际画质——照那行说，别自己猜「我有没有登录」。' +
           '什么时候用：他发来 B 站链接让你「看这个视频」「这段讲了什么」「封面/画面里是什么」。' +
           '怎么用：url 直接给他发的整条链接就行（BV 号也行），多 P 记得 page。' +
-          '先 frames=0 看元信息（几乎不花钱）；确定要看画面再给 mode 或 frames，一次最多 8 张。' +
-          '只看关键帧不等于看完全片：别声称「我看完了整段」；要说清你看的是哪几个时间点的画面。',
+          '**先 frames=0 看元信息或先 subtitle 读字幕**（都极便宜）；确定要看画面再给 mode 或 frames，一次最多 8 张。' +
+          '只看字幕 = 只是读了文字稿，你没看见画面；只看关键帧也不等于看完全片 —— 别声称「我看完了整段」，要说清你依据的是字幕还是哪几个时间点的画面。',
         parameters: {
           type: 'object',
           properties: {
@@ -361,8 +365,13 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
             page: { type: 'number', description: '分 P 序号，默认从链接的 ?p= 读，再不然 1' },
             mode: {
               type: 'string',
-              enum: ['quick', 'thorough'],
-              description: '看法档位：quick=2 帧 480×270（省钱）/ thorough=5 帧原生上限（看清细节）。不给就不取帧。',
+              enum: ['subtitle', 'quick', 'thorough'],
+              description:
+                '看法档位：subtitle=只读字幕不取图（最省，先试它）/ quick=2 帧 480×270 / thorough=5 帧原生上限。不给就不取帧。',
+            },
+            subtitles: {
+              type: 'boolean',
+              description: '顺带把字幕也读下来（任意档位可叠加）。mode:"subtitle" 时自动为 true，不用再给。',
             },
             frames: { type: 'number', description: '取几张关键帧，0 = 只看元信息；给了就压过 mode 的默认帧数，上限 8' },
             times: {
@@ -737,6 +746,8 @@ async function executeTool(
           mode: args?.mode,
           frames: args?.frames,
           times: args?.times,
+          // 字幕：`mode:'subtitle'` 时 watch 自己会开；这里透传是为了让 quick/thorough 也能叠加。
+          subtitles: args?.subtitles === true,
           // 她自己判定「这条我喜欢」——宿主侧据此写 liked.by='orb'（不进 B 站、不花钱）
           liked: args?.liked === true,
           reason: args?.reason,
@@ -769,6 +780,8 @@ async function executeTool(
                 },
                 frames: r.meta.frames,
                 stats: r.meta.stats,
+                // 字幕这一趟到底拿到了什么（没拿到时带 reason：no-subtitle / all-foreign / timeline-mismatch）
+                ...(r.meta.subtitles ? { subtitles: r.meta.subtitles } : {}),
                 // 这一趟用的是哪档看法（她后面解释成本时要引用）
                 mode: r.meta.mode,
                 maxOut: r.meta.maxOut,
