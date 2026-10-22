@@ -95,7 +95,7 @@ node src\launch.mjs
 | `鲸鱼娘_persona.md` | 人格正本，`src/persona.mjs` 每轮读它注入 system |
 | `tools/` | 构建与运维脚本：打出厂包、造 agent、审计导出物 |
 | `probe/` | 行为探针（自动化测试），一个功能一个文件 |
-| `docs/` | 设计与方案文档（长记忆形态、微信桥、历史对话修复…） |
+| `docs/` | 对外文档：长记忆设计、素材与许可、UI 指南，加三张截图 |
 | `data/` | **运行时生成**：会话、记忆仓、登录态、日志。不进 git |
 | `runtime/` | 自带 Electron 运行时，不进 git |
 

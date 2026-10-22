@@ -5,7 +5,7 @@
  * 纯 Node 探针 import 不了；而「取直链」只需要 fetch + 两个 API，可单独测。
  * 边界很清楚：本文件**不碰解码**，只负责把 `bvid` 变成一条能喂给 `<video>` 的 URL。
  *
- * ★ 三条实测约束（来自 docs/B站认真看_取帧第三条路_原生分辨率_2026-10-21.md）：
+ * ★ 三条实测约束（2026-10-21 实测记录；原始报告是内部文档，不进公开仓库）：
  *   1. 媒体直链必须同时带 `Referer: https://www.bilibili.com` 与浏览器 UA，缺一个 403；
  *   2. 直链有时效（URL 里带 deadline），**每次取帧都要重新 playurl**，不能缓存 url；
  *   3. 未登录（无 cookie）时 playurl 最高只给 480P，`accept_quality` 里没有 720P+。

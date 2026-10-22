@@ -5,7 +5,7 @@
  * 并且开放了**独立的** Search / Fetch 端点（不是 `chat/completions` 内建检索）：
  *   POST {base}/tools/search   { query, count, need_content, ori_question, localization }
  *   POST {base}/tools/fetch    { url }
- * 已实测：`probe/search-api-smoke.mjs` 16 PASS / 0 FAIL（见 docs/陪伴型助手_…_设计_2026-10-19.md §4.1）。
+ * 已实测：`probe/search-api-smoke.mjs` 16 PASS / 0 FAIL（设计见 2026-10-19 工具与微信桥接设计 §4.1，内部文档不进公开仓库）。
  *
  * 所以「她能不能联网」的分界线是：orb 有没有这段代码，而不是模型有没有联网能力。
  *

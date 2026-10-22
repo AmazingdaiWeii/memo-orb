@@ -5,7 +5,7 @@
  *   startLegacyServer()  —— 拉起 legacy server 子进程，从 stdout 解析实际端口（动态端口，不占固定口）
  *   LegacyConnection     —— 一条 WebSocket，按 request_id 关联命令响应，事件走 EventEmitter
  *
- * 协议细节全部来自本机实测（见 docs/legacy-protocol.md）。
+ * 协议细节全部来自本机实测（协议说明是内部文档，不进公开仓库）。
  */
 
 import { spawn } from 'node:child_process'
