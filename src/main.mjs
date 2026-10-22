@@ -214,6 +214,16 @@ const convOwnerCache = new Map()
 let pendingSwitch = null
 
 /**
+ * local 引擎的固定 agent id。
+ *
+ * local 模式**没有**「用户点一下才建 agent」这件事 —— 记忆仓（`data/memfs/local-agent`）、
+ * 会话 id（`local-local-agent`）、微信/印象辅助会话全都在进程第一次需要时直接按这个名字
+ * 建出来，`config.agentId` 全程保持出厂值 null。所以这个名字必须是**常量**，并由
+ * `resolveAgentId()` 统一给出（见下），不能只写在 `ensureRuntime` 的兜底表达式里。
+ */
+const LOCAL_AGENT_ID = 'local-agent'
+
+/**
  * agent id 的**唯一**入口。
  *
  * P5（2026-10-19 用户裁定）之后**只有一个 agent、一份记忆**：模式只剩人格（chat / work），
@@ -225,9 +235,24 @@ let pendingSwitch = null
  *
  * 兼容读取顺序：`agentId` 是正主；`agents.chat` / `agents.work` 是双模式时代的遗留，
  * 只在 `agentId` 缺失时兜底（normalizeModeConfig 会顺手把它们清掉）。
+ *
+ * ★ 2026-10-22 修复（出厂态两个致命 bug 的共同根因）：
+ *   出厂 config 里 `agentId: null`（真出厂路径就是「删干净 + agentId=null」），而 local 引擎
+ *   建记忆仓/会话时用的是 `resolveAgentId() || LOCAL_AGENT_ID` —— 这个兜底值**从来没有写回
+ *   config**，于是所有走 `resolveAgentId()` 的**读取口**恒拿到 null：
+ *     · `sendHistory()` → 日志刷「历史对话：chat 模式的 agent 还没建，推空列表」，磁盘上明明
+ *       躺着 4 条真实会话，抽屉却是空的（bug1）；
+ *     · `memoryAgentId()` → '' → `sendImpression()` / `maybeRunImpression()` 直接
+ *       「还没有 agent」，回忆面板永远打不开（bug2）。
+ *   兜底必须收在这里、而不是散在各个调用点：`resolveAgentId()` 是 agent id 的唯一入口，
+ *   local 下的 effective agent id 本来就恒等于 `local-agent`（数据也全在 data/memfs/local-agent
+ *   + 会话 `local-local-agent`）。legacy 语义不变 —— 没建 agent 时仍然返回 null。
  */
 function resolveAgentId(/* legacyMode：旧调用点会传「模式」，P5 后一律忽略 */) {
-  return config.agentId ?? config.agents?.chat ?? config.agents?.work ?? null
+  const known = config.agentId ?? config.agents?.chat ?? config.agents?.work ?? null
+  if (known) return known
+  // legacy 下 null 是有意义的（= 还没建 agent，由 startRuntime 现建后 rememberAgent 记住）
+  return config.engine === 'local' ? LOCAL_AGENT_ID : null
 }
 
 /**
@@ -1998,7 +2023,7 @@ async function getMemstore() {
   _memstore = await createMemoryStore({
     engine,
     root: ROOT,
-    agentId: resolveAgentId() || 'local-agent',
+    agentId: resolveAgentId() || LOCAL_AGENT_ID,
     legacy: engine === 'legacy' ? legacy : undefined,
   })
   return _memstore
@@ -3196,7 +3221,7 @@ async function ensureRuntime() {
         const { baseUrl, apiKey, model } = provider
         log(`[local] 模型 ${model} @ ${baseUrl}（密钥来自 ${provider.source}）`)
 
-        const agentId = resolveAgentId() || 'local-agent'
+        const agentId = resolveAgentId() || LOCAL_AGENT_ID
         const settings = createSettings({ configPath: CONFIG_PATH, log })
         const llm = createLLM({ baseUrl, apiKey, model, timeoutMs: 60000, settings })
         // 短文案专用实例：同样的 key/model，但关掉思考、输出上限压到 1200。
@@ -4286,7 +4311,7 @@ async function onNewConversation(targetMode = mode) {
     turnInFlight = false
     resetTranscript()
     const rt = await ensureRuntime()
-    const agentId = rt.agent_id || resolveAgentId() || 'local-agent'
+    const agentId = rt.agent_id || resolveAgentId() || LOCAL_AGENT_ID
     // 秒级时间戳可读、可排序；`#c…` 段不会撞上微信会话（`#wechat`）与印象整理（`#impression`）。
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
     let sessionId = `local-${agentId}#c${stamp}`
