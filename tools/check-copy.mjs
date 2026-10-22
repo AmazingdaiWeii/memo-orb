@@ -43,7 +43,7 @@ const EXPECTED = [
   'config.json',
   'config.example.json',
   'build.ps1',
-  'factory_reset.cmd',
+  'tools/legacy/factory_reset.cmd',
   'dist/start.bat',
   'tools/reset-to-factory.mjs',
 ]

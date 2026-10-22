@@ -110,12 +110,12 @@ const SKIP_REASONS = [
   ['helper-src/', '上游构建源副本'],
   ['_sandbox-data*/', '沙箱数据（其中 5 份含同一个真 API key）'],
   ['.git/', '版本库'],
-  ['背景/', '与 helper/assets/backgrounds/ 逐字节重复（9/9 MD5 相同），壁纸仍在 helper 内'],
+  ['背景/', '与 helper/assets/backgrounds/ 逐字节重复（6/6 相同），壁纸仍在 helper 内'],
   ['config.example.json', '由它生成 config.json，模板本身不发'],
   ['README.md', '开发手册（含私有过程）；脱敏后以「开发笔记/01」随包'],
   ['交接文档_当前进度*.md 等进度类交接文档', '内部交接（问题清单那篇以「开发笔记/02」随包）'],
   ['*.bak / .wbapp_* / .gitignore', '本机残留'],
-  ['build.ps1 / *.cmd（run.cmd 除外）/ *.ps1 / *.py / rcedit-x64.exe', '开发与打包工具'],
+  ['build.ps1（构建脚本）', '开发工具，不随包；一次性脚本已归档到 tools/legacy/，打包用二进制在 tools/bin/'],
 ]
 
 // ── 工具 ────────────────────────────────────────────────────
