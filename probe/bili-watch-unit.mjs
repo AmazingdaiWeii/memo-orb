@@ -149,7 +149,7 @@ try {
 {
   const loggedIn = createBiliWatch({
     getCookie: () => '',
-    getAccount: () => ({ loggedIn: true, uname: '测试账号', mid: <哔哩 UID>, vip: false }),
+    getAccount: () => ({ loggedIn: true, uname: '测试账号', mid: 123456789, vip: false }),
   })
   const r = await loggedIn.watch({ url: BV, frames: 0 })
   ok('L1 登录态：结果里带 account.loggedIn', r.ok && r.meta?.account?.loggedIn === true)
