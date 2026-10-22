@@ -1,6 +1,7 @@
 # 第三方来源披露
 
-> 本仓库以 **MIT** 分发（见 `LICENSE`）。本文件说明代码层面的衍生来源。
+> 本仓库以 **PolyForm Noncommercial 1.0.0**（非商业）授权，见 `LICENSE`。本文件说明代码层面的衍生来源。
+> ⚠️ **例外**：衍生自上游 MIT 代码的那部分（见第一节）保持上游的 MIT 许可，**那部分不受「非商业」限制**；只有本项目原创部分适用非商业条款。
 > 结论先行：**本包不含 DeepSeek 的任何名称、Logo 与头像素材，也不含上游 dsh-orb 的球体美术素材**；
 > 球脸、情绪图、背景图、托盘图标均为本项目自制。
 
@@ -20,7 +21,7 @@
 | `helper/assets/shell.js` | 球侧主脚本，沿用上游结构与少量 `dsh` 命名残留，已大量重写 |
 | `helper/assets/api-config.js`、`helper/assets/selection-toolbar.js` | 同上，含 `dsh` 命名残留 |
 
-按 MIT 要求，上述衍生代码在再分发时保留版权声明与许可声明即可。
+按上游 MIT 要求，上述衍生代码在再分发时保留版权声明与许可声明即可。这些文件里的上游代码仍是 MIT、可商用；本项目对它们不额外加限制（非商业条款只覆盖本项目原创部分）。
 
 ## 二、图标几何：`@deepseek-ai/dsh-client-ui-primitives`
 
@@ -46,6 +47,6 @@
 
 ## 许可与署名
 
-- 本项目：MIT，`Copyright (c) Amazingdaiweii, 2026`（见 `LICENSE`）。
-- 上游 dsh-orb-cordis：MIT，版权归 **mini-yifan**。
+- 本项目原创部分：PolyForm Noncommercial 1.0.0（**非商业**），`Copyright (c) AmazingdaiWeii, 2026`（见 `LICENSE`）。
+- 上游 dsh-orb-cordis：MIT，版权归 **mini-yifan**（衍生代码保持 MIT，可商用）。
 - Electron：MIT，版权归 GitHub Inc. 及贡献者；完整的第三方许可清单见 `runtime/electron/LICENSES.chromium.html`。

@@ -2,6 +2,7 @@
   "name": "orb",
   "version": "0.2.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "description": "桌面悬浮球助手：一只住在屏幕上的小球，自建对话引擎与长记忆，零 npm 依赖，数据全在本地 data/",
   "type": "commonjs",
   "main": "src/main.mjs",

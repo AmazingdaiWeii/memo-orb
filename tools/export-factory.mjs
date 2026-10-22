@@ -70,7 +70,7 @@ const UNLICENSED = new Set([
   'helper/assets/avatars/smile.gif',
 ])
 
-/** 版权署名（2026-10-22 作者确认为 `Amazingdaiweii`，MIT）。 */
+/** 版权署名（2026-10-22 作者确认为 `Amazingdaiweii`；许可 2026-10-22 改为 PolyForm Noncommercial 1.0.0）。 */
 const COPYRIGHT = 'Amazingdaiweii, 2026'
 
 /** `--no-runtime`：出「源码仓库版」——不含 366 MB 的 Electron，仓库体积降到约 23 MB。 */
@@ -536,7 +536,7 @@ ${WITH_RUNTIME ? '' : `
   改代码前建议看 00；改 CSS 后务必真起一次界面点一遍，样式少一行不会报错、只会让功能静默消失。
 
 ■ 素材授权
-  本包以 MIT 分发，见 LICENSE 与 THIRD-PARTY-NOTICES.md。
+  本包以 PolyForm Noncommercial 1.0.0 授权：自用、修改、分享都可以，**不得商用**。见 LICENSE 与 THIRD-PARTY-NOTICES.md。
   角色形象、背景图、deco/ 情绪图、orb-idle.gif 与托盘图标（helper/assets/tray.ico）
   均为本项目自制，可随包分发。
   helper/assets/avatars/ 里的 3 张（orb-A / orb-idle / orb-pat）同样自制、可分发；
@@ -546,32 +546,12 @@ ${WITH_RUNTIME ? '' : `
 writeFileSync(join(DEST, '出厂说明.txt'), '\uFEFF' + NOTES, 'utf8')
 log('写 出厂说明.txt')
 
-// ── 5a-bis. LICENSE（MIT）────────────────────────────────────
-// 上游 dsh-orb 与本项目均按 MIT；署名与年份由作者确认（COPYRIGHT 常量，改一处即可）。
-const LICENSE = `MIT License
-
-Copyright (c) ${COPYRIGHT}
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-`
+// ── 5a-bis. LICENSE（PolyForm Noncommercial 1.0.0，单一真源＝仓库根 LICENSE）──
+// 2026-10-22 由 MIT 改为非商业授权：自用 / 修改 / 分享可以，不得商用。
+// 不要再在这里写第二份许可正文 —— 改许可只改仓库根 LICENSE，包内那份从这里读。
+const LICENSE = readFileSync(join(ROOT, 'LICENSE'), 'utf8')
 writeFileSync(join(DEST, 'LICENSE'), LICENSE, 'utf8')
-log('写 LICENSE（MIT）')
+log('写 LICENSE（PolyForm Noncommercial 1.0.0）')
 
 // ── 5a-ter. .gitignore（两件套：这个目录既能当仓库，也能压成发布 zip）──
 const GITIGNORE = `# 运行时：366 MB / 单个 electron.exe 233 MB，超 GitHub 单文件上限，只走 Release zip
