@@ -1,3 +1,119 @@
+<div align="center">
+
+<img src="marketing/orb_xhs_poster.jpg" width="360" alt="Orb · 一颗会记事的悬浮球助手" />
+
+# Orb · 一颗会记事的桌面悬浮球助手
+
+**Windows 桌面 AI 助手**：常驻屏幕右沿，不挡事。<br>
+记忆是一堆 markdown 文件 + 一个 git 仓库 —— 重启之后它还是它，把文件夹拷到另一台机器也不会失忆。
+
+[下载出厂版](https://github.com/AmazingdaiWeii/memo-orb/releases) · [从源码跑](#从源码跑) · [它和普通聊天窗口有什么不一样](#它和普通聊天窗口有什么不一样)
+
+</div>
+
+---
+
+## 它是什么
+
+一颗悬浮在桌面上的小球。左键展开是对话面板，右键是环菜单（换形象 / 看过的视频 / 设置 …）。
+
+它不是一个网页套壳：大脑在本机跑（自建引擎，直连 OpenAI 兼容接口），会话、记忆、登录态全存在你自己的盘里；除了模型接口本身，不依赖任何外部服务。
+
+三个设计红线：
+
+1. **独立启动** —— 不依赖任何宿主进程，双击就能跑
+2. **不干扰** —— 不与别的程序抢端口（控制 socket 用 `listen(0)` 动态端口）
+3. **轻** —— 500 MB 量级
+
+## 它和普通聊天窗口有什么不一样
+
+**记忆是真的。** 不是「把聊天记录塞回上下文」那种记得。记忆是一份 git 版本化的 markdown 仓：`MEMORY.md`（四节固定：关于他 / 关于我自己 / 约好但还没做的 / 索引）、`about/印象.md`、`journal/YYYY-MM.md`（append-only）。你怎么称呼、它答应过你什么，都写在里面，每次改动都是一次 commit —— 所以能翻历史、能回滚。
+
+**两条会话，一份记忆。** 桌面上找它，或者微信里找它，是同一个它。
+
+**会自己看 B 站。** 丢一个视频链接过去，它真的会看画面（取关键帧，原生分辨率）；认真看还是快速看由它自己判断，不是给你一个「画质」菜单让你选。它记得自己看过什么，环菜单里有「看过的视频」。
+
+**会说话。** 接上语音之后，它说的每句话都会念出来。文字 → 音频整条链路都在内存里走，磁盘上不会因为说话多出任何文件。
+
+**知道自己的钱包。** 每轮上下文里有一行余额真数（问服务商接口，5 分钟缓存），贵的事做不做，它自己掂量。
+
+**人格是一份 markdown。** `鲸鱼娘_persona.md` 就是它的性格正本，每轮全文注入。想换一个它，改这个文件。
+
+## 怎么跑起来
+
+### 用出厂包（不用装 Node）
+
+到 [Releases](https://github.com/AmazingdaiWeii/memo-orb/releases) 下载 `Orb_factory_*.zip`：
+
+1. 解压到一个**普通目录**（别放 `C:\Program Files` 这种要管理员权限的地方）
+2. 双击 `Orb.exe`
+3. 打开设置页填模型：API Key + 模型名（DeepSeek，或任何 OpenAI 兼容网关）
+
+首次启动会在 exe 旁边建 `data/`，存会话、记忆、登录态。**包不带任何人的私人凭据**：微信是可选的，不填就不收发任何消息。
+
+### 从源码跑
+
+需要 Node ≥ 22.19。`package.json` 是**零依赖**的，不用 `npm install`。
+
+差一个 Electron 运行时：`runtime/`（约 367 MB）不进 git，自己准备一份：
+
+```powershell
+# 任选其一：把 electron 放进 runtime/electron/，或直接指定路径
+$env:ORB_ELECTRON = "D:\path\to\electron.exe"
+node src\launch.mjs
+```
+
+启动失败不会闪退（`src\launch.mjs` 用普通 Node 跑，报错留在控制台），日志在 `logs\orb.log` —— 排障第一入口。
+
+## 配置
+
+全在 `config.json`，改完重启生效（部分项运行期改即生效）：
+
+| 键 | 说明 |
+|---|---|
+| `model` | 模型名，`openai-compatible/<模型>` 或服务商自己的写法 |
+| `agentName` / `theme` / `locale` | 显示名 / 主题 / 语言 |
+| `electronPath` | Electron 可执行文件，**支持相对路径**（相对项目根），所以整个目录搬盘不用改配置 |
+| `engine` | `local`（默认，自建引擎）\| `legacy`（旧后端，仅历史保留，跑不起来） |
+| `contextBudgetTokens` | 上下文预算旋钮，默认 24 000，上限 = 模型上下文，**运行期改即生效** |
+| `adoptHostWechatCreds` | 是否允许从本机 `~/.dsh` 搬微信凭据。**出厂默认 `false`** |
+
+模型 Key 不进 `config.json`，落在 `data/providers/auth.json`（首次在设置页「API」分组里填，不用手改文件）。
+
+## 目录
+
+| 路径 | 作用 |
+|---|---|
+| `src/` | 后端全部源码：主进程、自建引擎、长记忆、会话、压缩、工具层、微信桥、TTS |
+| `helper/` | 球的窗口层与渲染层（`assets/*.js` 是可读源码，直接改） |
+| `鲸鱼娘_persona.md` | 人格正本，`src/persona.mjs` 每轮读它注入 system |
+| `tools/` | 构建与运维脚本：打出厂包、造 agent、审计导出物 |
+| `probe/` | 行为探针（自动化测试），一个功能一个文件 |
+| `docs/` | 设计与方案文档（长记忆形态、微信桥、历史对话修复…） |
+| `data/` | **运行时生成**：会话、记忆仓、登录态、日志。不进 git |
+| `runtime/` | 自带 Electron 运行时，不进 git |
+
+## 已知限制
+
+- 只打过 **Windows x64** 的包；macOS / Linux 没试过
+- 没有安装器，就是解压即用（首次启动手工填一次模型 key）
+- 微信桥要自己扫码配对；语音要自己的火山引擎（豆包）或 OpenAI 兼容 TTS 的 key
+- 记忆仓在 `data/` 里 —— 删掉就没了（好在它是 git 仓，能翻也能备份）
+
+## 素材与署名
+
+默认球脸、6 张情绪装饰图、页面背景、海报**全部为本项目自制**，可随仓库自由分发。上游 `dsh-orb` 的原素材未获授权，已从仓库移除。
+
+第三方组件与素材清单见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)；素材规格与命名规则见 [`helper/assets/avatars/README.txt`](helper/assets/avatars/README.txt)。
+
+> 本项目由个人开发者维护，与 DeepSeek AI 无任何隶属、认可或合作关系。代码与文档中出现的 "DeepSeek" 字样仅指其作为可选模型服务商之一，属描述性提及。
+
+---
+
+## 开发交接文档（原文，保留自用记录）
+
+> 下面是项目自己的交接与踩坑记录，从 2026-10-06 一路写下来，文风是给自己的，不是给访客的 —— 里面混着历史决策、失败过的做法、和一堆「不要做的事」。读代码前翻一遍，比读源码快。
+
 # Orb —— 交接文档
 
 > **2026-10-19 重大变更（阅读下文前必看）**：旧后端已被整体剥离。`package.json` 现在**零依赖**，`node_modules/` 已删除（释放 454 MB），后端换成自建的 `src/llm.mjs` + `src/brain.mjs` + `src/memstore-local.mjs` + `src/snapshot.mjs` + `src/compact.mjs`，数据根改为项目内 `data/`。本文档下方「大脑：旧后端」等描述均为**剥离前的历史记录**。
