@@ -335,6 +335,17 @@ ${WITH_RUNTIME
   首次启动会自动新建一条属于你的记忆仓（data/memfs/orb-<日期>/），
   球的人格来自 鲸鱼娘_persona.md，和上一个使用者的状态完全无关。
 
+■ 打不开？先看这条（360 安全卫士会拦）
+  双击 Orb.exe 没反应、也不报错 —— 大概率是 360 的「主动防御 / 木马防火墙」把它挡在
+  创建进程那一步（命令行启动会看到「拒绝访问。」/ Access is denied.，即 WinError 5）。
+  不是包坏了：先用 Release 里的 .sha256 核对 Get-FileHash，对得上就是被拦，不是下载坏了。
+  放行：360 → 左侧「木马查杀」→ 右下角「信任区」→「添加信任目录」，选中整个解压目录
+        （别只加 Orb.exe，它还要启动 runtime/electron/electron.exe）。
+        已被隔离的：同页右下角「恢复区」→ 恢复，并勾选加入信任区。
+  原因：本程序没做代码签名，360 把「未签名 + 启动后立刻拉起子进程」的新程序当可疑下载器；
+        Electron 的 electron.exe 也在国产杀软的专门规则里。换 Windows Defender 或没装 360
+        的机器，同一个包能正常跑。
+  治本：https://open.soft.360.cn/report.htm 提交误报（官方口径 1-2 个工作日）。
 ■ 第一次要做的两件事
   · 连模型：打开球的设置面板 → API，填 base_url 与 key，选模型
     （密钥存在 data/providers/auth.json，明文，只在本机）
