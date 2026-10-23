@@ -17,6 +17,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { startLegacyServer, LegacyConnection, startRuntime } from './legacy-engine.mjs'
 import { readPersona } from './persona.mjs'
+// 冻结/唤醒（2026-10-23）。别名是为了不和本文件里已有的 `list*` / `freeze*` 撞名。
+import { freeze as snapFreeze, list as snapList, thaw as snapThaw } from './data-snapshot.mjs'
 import { listConversations, readConversationBlocks, readMessageImages, renameConversation, deleteConversation, exportConversation } from './history.mjs'
 import { createLockStore } from './lock.mjs'
 import { createLockFlow } from './lock-flow.mjs'
@@ -1038,6 +1040,25 @@ let pendingOpen = null
 const turnQueue = []
 /** 是否有一条已经 `input` 出去但还没收到 stop_reason（回合进行中）。 */
 let turnInFlight = false
+/**
+ * 等她这一轮说完，等不到就返回 false。
+ *
+ * ★ 冻结/唤醒都要先过这一道，理由不是洁癖：
+ *   `messages.jsonl` 是**追加**写，回合进行中复制会拿到半个回合；
+ *   解冻更糟 —— 目录换位的瞬间她还在往旧目录里写，写进去的东西会凭空消失。
+ *   而用户最可能点冻结的时机恰恰是「她刚说完一句让我感动的话」，
+ *   那一秒回合可能还没收口。所以这道等待是功能正确性的一部分，不是优化。
+ *
+ * 超时返回 false 由调用方拒绝 —— 绝不允许「等不及了就先冻吧」。
+ */
+async function waitTurnIdle(maxMs = 30_000) {
+  const t0 = Date.now()
+  while (turnInFlight || turnQueue.length > 0) {
+    if (Date.now() - t0 > maxMs) return false
+    await new Promise((r) => { setTimeout(r, 250) })
+  }
+  return true
+}
 /**
  * ★ 当前 local 会话 id（2026-10-19 用户要求：历史对话要能真的切过去）。
  *
@@ -2939,6 +2960,85 @@ function onBallMessage(msg) {
         const updated = await waitImpressionUpdated(agentId, before)
         log(updated ? '记忆中心：印象已更新，面板刷新' : '记忆中心：等印象更新超时（她可能还在跑，或写盘被拒）')
         await sendImpression()
+      })()
+      break
+    }
+    // ---------------------------------------------------------------- 冻结 / 唤醒（2026-10-23）
+    // 契约：球 → host
+    //   { type:'impression-snap-list' }
+    //   { type:'impression-snap-freeze' }
+    //   { type:'impression-snap-thaw', id }
+    // host → 球
+    //   { type:'snap-list', ok, snapshots:[{id, when, files, bytes, reason, broken}] }
+    //   { type:'snap-result', action:'freeze'|'thaw', ok, id?, files?, bytes?, error?, note? }
+    //
+    // ★ 两个分支都先 `waitTurnIdle()`。不许「等不及就先冻吧」——
+    //   半截回合的存档，解冻之后会表现为「她重复一句话的开头」，比没有存档更难查。
+    case 'impression-snap-list': {
+      try {
+        const rows = snapList().map((r) => {
+          const d = new Date(r.createdAt ?? 0)
+          const pad = (n) => String(n).padStart(2, '0')
+          const when = Number.isNaN(d.getTime())
+            ? String(r.id)
+            : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+          return {
+            id: r.id, when, files: r.fileCount, bytes: r.bytes,
+            reason: r.reason, broken: r.broken,
+          }
+        })
+        send({ type: 'snap-list', ok: true, snapshots: rows })
+      } catch (err) {
+        send({ type: 'snap-list', ok: false, snapshots: [], error: err.message })
+      }
+      break
+    }
+    case 'impression-snap-freeze': {
+      void (async () => {
+        if (!(await waitTurnIdle())) {
+          send({ type: 'snap-result', action: 'freeze', ok: false, error: '她这一轮还没说完，等一会儿再点。' })
+          return
+        }
+        try {
+          const r = await snapFreeze({
+            reason: 'manual-panel',
+            meta: { engine: config.engine, agentId: memoryAgentId() },
+          })
+          send({ type: 'snap-result', action: 'freeze', ok: true, id: r.id, files: r.fileCount, bytes: r.bytes })
+        } catch (err) {
+          send({ type: 'snap-result', action: 'freeze', ok: false, error: err.message })
+        }
+      })()
+      break
+    }
+    case 'impression-snap-thaw': {
+      void (async () => {
+        const id = typeof msg.id === 'string' ? msg.id : ''
+        if (id === '') {
+          send({ type: 'snap-result', action: 'thaw', ok: false, error: '没有指明要用哪一份存档。' })
+          return
+        }
+        if (!(await waitTurnIdle())) {
+          send({ type: 'snap-result', action: 'thaw', ok: false, error: '她这一轮还没说完，等一会儿再点。' })
+          return
+        }
+        try {
+          const r = await snapThaw(id, {
+            meta: { engine: config.engine, agentId: memoryAgentId() },
+          })
+          // ⚠️ 数据已经换好了，但**当前这条会话的 system prompt 是在开窗时冻结的**
+          //    （见 src/snapshot.mjs 的 I3：会话内字节不变）。所以新的记忆要等
+          //    下一次重建快照才会进入她的上下文 —— 眼下最稳的说法是让用户重开一次。
+          //    TODO(2026-10-23)：thaw 成功后主动触发一次 session 快照重建，
+          //    把"重开软件"这一步去掉。没做之前不许在文案里暗示"立刻生效"。
+          send({
+            type: 'snap-result', action: 'thaw', ok: true, id,
+            backupId: r.backupId, note: r.note,
+            needsRestart: true,
+          })
+        } catch (err) {
+          send({ type: 'snap-result', action: 'thaw', ok: false, error: err.message })
+        }
       })()
       break
     }

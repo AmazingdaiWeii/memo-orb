@@ -26,11 +26,14 @@
  * 不要图省事塞一个 Markdown 库进来。
  */
 
-/** 频率三档。键是 host 认的 `everyHours`，值是给人看的标签。 */
+/** 频率三档。键是 host 认的 `everyHours`，值是给人看的标签。
+ *  ★ 中文一律四字：这几个标签是同一个 chip 里切换的，字数不等会让整行宽度跳
+ *    （2026-10-23 用户要求「关闭总结」而不是「已关闭」就是为了凑齐四字）。
+ *    `probe/impression-panel-wiring.mjs` 会当场判红。 */
 const SCHEDULE_OPTIONS = [
   { hours: 24, zh: '每天一次', en: 'Daily' },
   { hours: 168, zh: '每周一次', en: 'Weekly' },
-  { hours: 0, zh: '已关闭', en: 'Off' },
+  { hours: 0, zh: '关闭总结', en: 'Off' },
 ]
 
 /**
@@ -68,6 +71,13 @@ export function createImpressionPanel(options) {
   const emptyEl = document.querySelector('#impression-empty')
   const refreshBtn = document.querySelector('#impression-refresh')
   const scheduleBtn = document.querySelector('#impression-schedule')
+  const freezeBtn = document.querySelector('#impression-freeze')
+  const wakeBtn = document.querySelector('#impression-wake')
+  const hintEl = document.querySelector('#impression-hint')
+  const confirmBox = document.querySelector('#impression-confirm')
+  const confirmText = document.querySelector('#impression-confirm-text')
+  const confirmOk = document.querySelector('#impression-confirm-ok')
+  const confirmCancel = document.querySelector('#impression-confirm-cancel')
   const historyBox = document.querySelector('#impression-history')
   const historySummary = document.querySelector('#impression-history-summary')
   const historyList = document.querySelector('#impression-history-list')
@@ -82,6 +92,19 @@ export function createImpressionPanel(options) {
   /** 手动触发后到回执之间的等待态。 */
   let refreshing = false
   let historyRequested = false
+  /** 冻结 / 唤醒的等待态。两者都会动盘，期间禁用，防连点。 */
+  let freezing = false
+  let waking = false
+  /**
+   * 已知存档份数。**null = 还不知道**（面板刚打开，没问过）。
+   *
+   * 初值必须是 `null` 而不是 `0`：判据是 `=== 0`（确定一份都没有才禁用）。
+   * 若初值写 0，「唤醒记忆」一打开就是禁用的，用户永远点不到第一下，
+   * 也就永远问不出列表 —— 自己把自己锁死。
+   */
+  let snapshotCount = null
+  /** 已选中、正等确认的那一份。null = 当前没有待确认的唤醒。 */
+  let pendingThaw = null
 
   /**
    * 可重复调用的「只刷文案」。
@@ -101,6 +124,14 @@ export function createImpressionPanel(options) {
     closeBtn.textContent = '×'
     closeBtn.setAttribute('aria-label', t('impressionClose'))
     refreshBtn.textContent = t('impressionRefresh')
+    // 四个 chip 的标签长度刻意对齐（四字），等宽布局才不会因为切语言而跳。
+    freezeBtn.textContent = freezing ? t('impressionFreezing') : t('impressionFreeze')
+    wakeBtn.textContent = waking ? t('impressionWaking') : t('impressionWake')
+    hintEl.textContent = t('impressionHint')
+    confirmOk.textContent = t('impressionWakeOk')
+    confirmCancel.textContent = t('impressionWakeCancel')
+    // 已弹出的确认条要跟着换语言（文案里带时间，重建一次最省事）
+    if (pendingThaw !== null) renderConfirmText()
     historySummary.textContent = t('impressionHistory')
     atBack.textContent = t('impressionBack')
   }
@@ -131,7 +162,36 @@ export function createImpressionPanel(options) {
         },
       })
     })
-    closeBtn.addEventListener('click', () => setOpen(false))
+    // ── 冻结 / 唤醒（2026-10-23）──────────────────────────────────────
+    // 冻结＝**无损**：点一下就存，不弹确认。它不改动任何现有内容，
+    //   多一道确认只会把「想留住这一刻」变成一道手续。
+    freezeBtn.addEventListener('click', () => {
+      if (freezing) return
+      freezing = true
+      syncFooter()
+      send('snap-freeze')
+    })
+    // 唤醒＝**有损**：点一下只允许「列出存档」，选完还要再确认一次。
+    //   两个长得一样的 chip，交互不能一样 —— 否则用户会把唤醒当成
+    //   「把这些记忆读出来看看」，而它实际是拿旧存档覆盖现在的记忆。
+    wakeBtn.addEventListener('click', () => {
+      if (waking || snapshotCount === 0) return
+      send('snap-list')
+    })
+    confirmCancel.addEventListener('click', () => hideConfirm())
+    confirmOk.addEventListener('click', () => {
+      if (pendingThaw === null) return
+      const id = pendingThaw.id
+      hideConfirm()
+      waking = true
+      syncFooter()
+      send('snap-thaw', { id })
+    })
+    closeBtn.addEventListener('click', () => {
+      // 关面板时把确认条也收掉：否则下次打开会看到一条上一个世纪的提问。
+      hideConfirm()
+      setOpen(false)
+    })
     refreshBtn.addEventListener('click', () => {
       // 防连点：一次触发要等她跑完（可能一两分钟），期间禁用按钮。
       if (refreshing) return
@@ -175,6 +235,62 @@ export function createImpressionPanel(options) {
     if (next) send('get')
   }
 
+  // ── 唤醒确认条（2026-10-23）──────────────────────────────────────
+
+  /** 收起确认条并清掉待确认项。幂等，可以在任何地方随手调。 */
+  function hideConfirm() {
+    pendingThaw = null
+    confirmBox.hidden = true
+    confirmText.textContent = ''
+  }
+
+  /** 确认条文案：带上那一份的时间，别让用户凭记忆猜自己要覆盖成哪一版。 */
+  function renderConfirmText() {
+    if (pendingThaw === null) return
+    confirmText.textContent = String(t('impressionWakeConfirm')).replace('{when}', pendingThaw.when)
+  }
+
+  /** 选中某一份之后**只弹确认条**，不执行。执行在 confirmOk 里。 */
+  function showConfirmFor(row) {
+    pendingThaw = { id: row.id, when: row.when }
+    confirmBox.hidden = false
+    renderConfirmText()
+  }
+
+  /**
+   * 存档列表 → 复用「频率选择」那套自绘菜单。
+   *
+   * 不另造一个列表控件：右键菜单、头像选择器、频率已经是同一套，
+   * 再造第三个只会长出第三种定位逻辑和第三种配色。
+   */
+  function pickSnapshot(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      snapshotCount = 0
+      syncFooter()
+      warnEl.hidden = false
+      warnEl.textContent = t('impressionWakeNoSnapshots')
+      return
+    }
+    snapshotCount = rows.length
+    syncFooter()
+    const rect = wakeBtn.getBoundingClientRect()
+    openPicker({
+      x: rect.left,
+      y: rect.top,
+      items: rows.map((row) => ({
+        id: String(row.id),
+        label: `${row.when} · ${row.files} 个文件`,
+        checked: false,
+      })),
+      onPick: (pickedId) => {
+        // ★ 选中 ≠ 执行。这里只弹确认条；真正的 send('snap-thaw') 在确认之后。
+        const row = rows.find((r) => String(r.id) === String(pickedId))
+        if (!row) return
+        showConfirmFor(row)
+      },
+    })
+  }
+
   /** 底部按钮的等待态。 */
   function syncFooter() {
     refreshBtn.disabled = refreshing
@@ -183,6 +299,15 @@ export function createImpressionPanel(options) {
       : (data !== null && data.ok === true && data.everyHours === 0
         ? t('impressionRefreshDisabled')
         : t('impressionRefresh'))
+    // 冻结：动盘期间禁用 + 换文案。等宽布局下换文案不会让整行跳。
+    freezeBtn.disabled = freezing
+    freezeBtn.textContent = freezing ? t('impressionFreezing') : t('impressionFreeze')
+    // 唤醒：一份存档都没有时禁用，并用 title 说明原因 ——
+    // 「点了没反应」和「点了弹空列表」都比「禁用 + 说明」更让人困惑。
+    wakeBtn.disabled = waking || snapshotCount === 0
+    wakeBtn.textContent = waking ? t('impressionWaking') : t('impressionWake')
+    if (snapshotCount === 0) wakeBtn.title = t('impressionWakeNoSnapshots')
+    else wakeBtn.removeAttribute('title')
     if (data !== null) {
       // ★ 按钮文字 = 当前档位 + ▾（原生 <select> 换成自绘后的对应物）。
       //   `everyHours` 缺失时按 24兜底 —— host 侧老会话可能没这个字段。
@@ -277,6 +402,40 @@ export function createImpressionPanel(options) {
           emptyEl.textContent = `${t('impressionFailed')}${payload.error ?? ''}`
         }
         syncFooter()
+        return
+      }
+      case 'snap-list': {
+        if (payload.ok !== true) {
+          warnEl.hidden = false
+          warnEl.textContent = `${t('impressionSnapFailed')}${payload.error ?? ''}`
+          return
+        }
+        pickSnapshot(payload.snapshots)
+        return
+      }
+      case 'snap-result': {
+        if (payload.action === 'freeze') {
+          freezing = false
+          syncFooter()
+          warnEl.hidden = false
+          warnEl.textContent = payload.ok === true
+            ? t('impressionFrozen')
+            : `${t('impressionFreezeFailed')}${payload.error ?? ''}`
+          // 刚存完就问一次列表：「唤醒记忆」可以从禁用变可用，
+          // 用户不用为了让它可点而关掉面板再打开。
+          if (payload.ok === true) send('snap-list')
+          return
+        }
+        if (payload.action === 'thaw') {
+          waking = false
+          syncFooter()
+          warnEl.hidden = false
+          warnEl.textContent = payload.ok === true
+            ? t('impressionWoke')
+            : `${t('impressionWakeFailed')}${payload.error ?? ''}`
+          if (payload.ok === true) send('get')
+          return
+        }
         return
       }
       case 'impression-history': {

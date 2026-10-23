@@ -559,6 +559,128 @@ body.expand-up #transcript {
   color: var(--black);
 }
 
+/* ★ 2026-10-23：底部四个 chip 统一外形，**覆盖**上面 #impression-refresh /
+   #impression-schedule 各自写的那两条规则（它们风格是分裂的）。
+ *
+ * 分裂的根因不是"美术风格没统一"，是两个按钮背后的底色语义不同：
+ * 左 `background: transparent` 透出卡片的 backdrop-filter ⇒ 看着像毛玻璃；
+ * 右 `background: var(--input-bg)`（rgb 35,35,36）⇒ 看着是黑框。
+ *
+ * 统一朝**实心**走，不朝透明：透明 chip 浮在会变的壁纸上，对比度没法保证；
+ * 而 var(--input-bg) + var(--black) 是主题里已经验证过的一对。
+ *
+ * 四个都 `flex: 1 1 0` 等宽 —— 标签刻意全用四字（现在总结 / 每天一次 /
+ * 冻结记忆 / 唤醒记忆），所以切频率、进等待态都不会让整行跳宽。
+ */
+#impression-refresh,
+#impression-schedule,
+#impression-freeze,
+#impression-wake {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 30px;
+  padding: 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--black);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#impression-refresh:hover,
+#impression-schedule:hover,
+#impression-freeze:hover,
+#impression-wake:hover {
+  background: color-mix(in srgb, var(--pin) 14%, var(--input-bg));
+}
+
+#impression-refresh:disabled,
+#impression-freeze:disabled,
+#impression-wake:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+#impression-refresh:focus-visible,
+#impression-schedule:focus-visible,
+#impression-freeze:focus-visible,
+#impression-wake:focus-visible {
+  outline: 2px solid var(--pin);
+  outline-offset: 1px;
+}
+
+/* 状态行 + 右侧那行小字。小字不许把状态行挤没：
+   meta 可缩，小字按内容宽；窄面板时整行换行而不是把小字压成竖排。 */
+.impression-topline {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.impression-topline .impression-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.impression-hint {
+  margin: 0 0 0 auto;
+  color: var(--pin);
+  font-size: 11.5px;
+  opacity: 0.78;
+  white-space: nowrap;
+}
+
+.impression-hint:empty {
+  display: none;
+}
+
+/* 唤醒确认条：复用警示条的视觉语言（同 .impression-warn 的底色），
+   但它带两个按钮，所以是单独一层。 */
+.impression-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+  color: var(--pin);
+  font-size: 12px;
+}
+
+.impression-confirm p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.impression-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.impression-confirm-actions button {
+  min-height: 26px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--black);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* ★ 凡自己写过 display:flex 的元素都必须补 [hidden] —— 否则 hidden 被压掉，
+   确认条会一直挂在那儿（这个项目里踩过好几回）。 */
+.impression-confirm[hidden] {
+  display: none;
+}
+
 #impression-history {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);

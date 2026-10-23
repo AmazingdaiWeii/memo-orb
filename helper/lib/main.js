@@ -1617,6 +1617,25 @@ ipcMain.on("orb:impression", (event, message) => {
 	}
 	if (action === "archive-now") {
 		write({ type: "memory:archive-now" });
+		return;
+	}
+	// ── 冻结 / 唤醒（2026-10-23）──
+	// 三个动作分开写，不合并成「带参数的一条」：冻结不接收参数，
+	// 唤醒只接收一个 id，合并只会让白名单变松。
+	if (action === "snap-freeze") {
+		write({ type: "impression-snap-freeze" });
+		return;
+	}
+	if (action === "snap-list") {
+		write({ type: "impression-snap-list" });
+		return;
+	}
+	if (action === "snap-thaw") {
+		// id 在 host 侧会拼进路径，这里先按字符集收窄一道（host 还会再查存在性）。
+		const id = typeof message?.id === "string" ? message.id : "";
+		if (!/^[0-9A-Za-z._-]{4,64}$/.test(id)) return;
+		write({ type: "impression-snap-thaw", id });
+		return;
 	}
 });
 ipcMain.on("orb:open", (event, sessionId) => {
@@ -2256,6 +2275,9 @@ const IMPRESSION_TYPES = new Set([
 	"impression-at",
 	"impression-result",
 	"memory:archive-result",
+	// 冻结/唤醒（2026-10-23）：列表与结果同样原样转发，别在这里做字段投影
+	"snap-list",
+	"snap-result",
 ]);
 function fromBall(event) {
 	if (!win || win.isDestroyed()) return false;

@@ -51,8 +51,11 @@ console.log('── 1. 素材：6 个情绪的 GIF 都在，且文件名合规 �
  */
 const MAIN_JS = readFileSync(join(ROOT, 'helper', 'lib', 'main.js'), 'utf8')
 const PRESET_RE = (() => {
-  const m = MAIN_JS.match(/const PRESET_SRC\s*=\s*(\/\^\[a-z0-9\][^\n;]*\/[a-z]*)/)
-  if (m === null) throw new Error('产品 main.js 里找不到 PRESET_SRC 定义')
+  // ⚠️ 变量名可能带打包后缀：`helper/lib/main.js` 是**构建产物**，tsdown 撞名时会
+  //    把它重命名成 `PRESET_SRC$1`（2026-10-23 实测）。原来只认 `PRESET_SRC`，
+  //    于是产品没坏、探针先红 —— 这是"断言过时"，不是回归。
+  const m = MAIN_JS.match(/const PRESET_SRC(?:\$\d+)?\s*=\s*(\/\^\[a-z0-9\][^\n;]*\/[a-z]*)/)
+  if (m === null) throw new Error('产品 main.js 里找不到 PRESET_SRC 定义（含 $N 后缀也认）')
   return new RegExp(m[1].slice(1, m[1].lastIndexOf('/')).replace(/\/$/, ''))
 })()
 

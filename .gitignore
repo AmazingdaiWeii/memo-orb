@@ -20,6 +20,11 @@ config.json
 data/*
 !data/agents-remote.example.json
 
+# ── 用户手动存档（★ 每一份都是 data 的完整拷贝：API key、cookie、全部对话原文）
+#    不进 git —— 否则一次 git add -A 就把全部私密内容写进历史，
+#    而且 git 历史洗不掉（同 2026-10-22 那笔真密钥的教训）。
+.orb-snapshots/
+
 # ── 探针沙箱数据根（★ 2026-10-22 补：根目录 9 个 _sandbox-* 里有 5 份
 #    providers/auth.json，内容是**与 data/providers/auth.json 同一个真 key**。
 #    .gitignore 原来的 data/* 挡不住它们 ⇒ git add -A 会把真密钥写进历史。

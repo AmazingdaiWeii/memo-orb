@@ -24,6 +24,125 @@ import { createHash } from 'node:crypto'
 import { join, relative, resolve, dirname } from 'node:path'
 import { memoryDir, searchMemory, isBlockedMemoryPath } from './memory.mjs'
 
+// ── 片段替换的纯逻辑（无 IO，便于单测）───────────────────────
+//
+// patch_memory 的核心不是"替换"这个动作，而是**失败必须显式、含糊必须拒绝**。
+// 2026-10-23 实测：write_memory 占工具调用 23.4%，且只能整文件覆盖 —— 为改一行，
+// 她要先读全文（其中 92% 读的是 MEMORY.md，而它每轮已经全文注入系统提示）、
+// 再把全文重抄一遍当输出。但换成"片段替换"会引入新风险：
+//   old 记错 → 匹配不上 → 若静默退化成"整份重写"，就是凭记忆重构全文，
+//   幻觉会顺着这条路直接进记忆仓。所以这里的每个拒绝都要给出**盘上真实内容**。
+
+/** old 片段最短长度：太短的串几乎必然多处命中，是误改的头号来源。 */
+export const PATCH_MIN_OLD = 4
+
+/** 一条 patch 里最多几处改动；再多就不该用 patch，该整份重写。 */
+export const PATCH_MAX_EDITS = 12
+
+function lineOf(text, index) {
+  let n = 1
+  for (let i = 0; i < index && i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) n += 1
+  }
+  return n
+}
+
+function countOccurrences(hay, needle) {
+  const out = []
+  let from = 0
+  for (;;) {
+    const at = hay.indexOf(needle, from)
+    if (at < 0) break
+    out.push(at)
+    from = at + (needle.length || 1)
+  }
+  return out
+}
+
+/**
+ * 找出与 needle 最像的几行（中文用 bigram 重合度，零依赖）。
+ * 匹配失败时靠它把**真实内容**交回调用方 —— 否则模型只能凭记忆猜。
+ */
+export function findClosestLines(content, needle, limit = 3) {
+  const grams = (s) => {
+    const t = String(s).replace(/\s+/g, '')
+    const set = new Set()
+    for (let i = 0; i + 1 < t.length; i++) set.add(t.slice(i, i + 2))
+    return set
+  }
+  const ng = grams(needle)
+  if (ng.size === 0) return []
+  const scored = []
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i]
+    if (text.trim() === '') continue
+    const lg = grams(text)
+    let hit = 0
+    for (const g of ng) if (lg.has(g)) hit += 1
+    const score = hit / ng.size
+    if (score > 0.2) scored.push({ line: i + 1, text: text.slice(0, 200), score })
+  }
+  scored.sort((a, b) => b.score - a.score || a.line - b.line)
+  return scored.slice(0, limit).map(({ line, text }) => ({ line, text }))
+}
+
+/**
+ * 逐处唯一匹配替换。**任何一处不合法就整体失败，绝不部分替换。**
+ * @returns {{ok:true,next:string,applied:Array}|{ok:false,error:string,detail?:object}}
+ */
+export function applyEdits(content, edits) {
+  if (!Array.isArray(edits) || edits.length === 0) {
+    return { ok: false, error: 'edits 不能为空：至少要给一处 {old, new}' }
+  }
+  if (edits.length > PATCH_MAX_EDITS) {
+    return { ok: false, error: `edits 最多 ${PATCH_MAX_EDITS} 处；要改这么多就直接 write_memory 整份重写` }
+  }
+
+  let cur = content
+  const applied = []
+  for (let i = 0; i < edits.length; i++) {
+    const at = i + 1
+    const e = edits[i] || {}
+    const oldText = typeof e.old === 'string' ? e.old : ''
+    const newText = typeof e.new === 'string' ? e.new : null
+
+    if (oldText === '') return { ok: false, error: `第 ${at} 处：old 不能为空` }
+    if (newText === null) return { ok: false, error: `第 ${at} 处：new 必须是字符串（要删掉这段就给空串 ""）` }
+    if (oldText === newText) return { ok: false, error: `第 ${at} 处：old 和 new 一模一样，改了等于没改` }
+    if (oldText.length < PATCH_MIN_OLD) {
+      return { ok: false, error: `第 ${at} 处：old 只有 ${oldText.length} 字，太短容易误伤（至少 ${PATCH_MIN_OLD} 字）` }
+    }
+
+    const hits = countOccurrences(cur, oldText)
+    if (hits.length === 0) {
+      return {
+        ok: false,
+        error: `第 ${at} 处：文件里找不到这段 old。**不要凭记忆重写**，看下面这几行真实内容再改`,
+        detail: { closest: findClosestLines(cur, oldText) },
+      }
+    }
+    if (hits.length > 1) {
+      return {
+        ok: false,
+        error: `第 ${at} 处：old 在文件里命中 ${hits.length} 次，改哪一处不确定。把 old 写长一点（带上前后文）再试`,
+        detail: {
+          occurrences: hits.slice(0, 6).map((idx) => ({
+            line: lineOf(cur, idx),
+            text: cur.slice(idx, idx + 160).split('\n')[0],
+          })),
+        },
+      }
+    }
+
+    const idx = hits[0]
+    const line = lineOf(cur, idx)
+    cur = cur.slice(0, idx) + newText + cur.slice(idx + oldText.length)
+    applied.push({ index: at, line, removed: oldText.length, added: newText.length })
+  }
+  return { ok: true, next: cur, applied }
+}
+
 // ── git 工具函数 ─────────────────────────────────────────
 
 /**
@@ -243,6 +362,81 @@ export function createLocalMemoryStore({ root, agentId }) {
         return readFileSync(full, 'utf8')
       } catch {
         return null
+      }
+    },
+
+    /**
+     * ★ 片段替换：读当前内容 → 逐处唯一匹配 → 落盘（内部走 write()，一次提交）。
+     *
+     * 为什么单独一个方法：`write()` 只能整文件覆盖，为改一行必须先把全文读进来、
+     * 再把全文重抄一遍当输出。patch 把「读—改—写」的机械部分留给宿主，
+     * 模型只需要给出改哪一段、改成什么。
+     *
+     * ★ 与幻觉的关系（设计时的第一约束）：
+     *   old 对不上就**整体失败**，并把盘上真实内容回给调用方；
+     *   绝不偷偷退化成整份重写 —— "匹配失败 → 凭记忆重构全文"
+     *   正是幻觉进记忆仓的主入口。
+     *
+     * ★ 为什么不自己进队列：write() 内部已经排队，这里再排会嵌套死锁。
+     *   读写之间的并发窗口由 expectHash（乐观锁）兜住。
+     *
+     * @param {string} path
+     * @param {Array<{old:string,new:string}>} edits
+     * @param {string} [label]
+     * @param {{expectHash?:string, dryRun?:boolean, maxBytes?:number}} [opts]
+     */
+    async patch(path, edits, label = 'tool', opts = {}) {
+      const { expectHash = null, dryRun = false, maxBytes = 0 } = opts || {}
+
+      const cur = await this.read(path)
+      if (cur === null) {
+        return {
+          ok: false,
+          error: `文件不存在: ${path}（patch 只改已存在的文件；要新建请用 write_memory / save_topic）`,
+        }
+      }
+
+      const hash = createHash('sha256').update(cur, 'utf8').digest('hex').slice(0, 16)
+      if (expectHash) {
+        const want = String(expectHash)
+        if (hash !== want && !hash.startsWith(want)) {
+          return {
+            ok: false,
+            error: `版本对不上（你要改的是 ${want}，盘上现在是 ${hash}）。先 read_memory 看一眼再改，别按记忆改`,
+            detail: { hash },
+          }
+        }
+      }
+
+      const r = applyEdits(cur, edits)
+      if (!r.ok) return { ...r, path, hash }
+
+      const bytes = Buffer.byteLength(r.next, 'utf8')
+      if (maxBytes > 0 && bytes > maxBytes) {
+        return {
+          ok: false,
+          error: `改完会是 ${bytes}B，超过上限 ${maxBytes}B。先精简再改，或者把细节挪到 journal`,
+          detail: { beforeBytes: Buffer.byteLength(cur, 'utf8'), afterBytes: bytes },
+        }
+      }
+
+      if (dryRun) {
+        return { ok: true, dryRun: true, path, hash, applied: r.applied, bytes }
+      }
+
+      const w = await this.write(path, r.next, label)
+      return {
+        ok: true,
+        path,
+        sha: w.sha,
+        changed: w.changed !== false,
+        applied: r.applied,
+        hash,
+        bytes,
+        message:
+          w.changed === false
+            ? '改动与已保存的一致，没有产生新提交'
+            : `改了 ${r.applied.length} 处（第 ${r.applied.map((a) => a.line).join('、')} 行）`,
       }
     },
 

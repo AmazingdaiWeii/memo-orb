@@ -129,8 +129,26 @@
           <h2 id="impression-title"></h2>
           <button id="impression-close" type="button" aria-label="关闭"></button>
         </header>
-        <p id="impression-meta" class="impression-meta"></p>
+        <!-- 状态行 + 右侧那行小字。
+             ★ 小字只指向「冻结记忆」，**不解释唤醒** —— 冻结与唤醒是一件事的
+               正反两面，解释第二个等于说废话（2026-10-23 用户要求）。
+               它也不是按钮：文案是「去试试那个按钮」，自己再可点就成了两个入口。 -->
+        <div class="impression-topline">
+          <p id="impression-meta" class="impression-meta"></p>
+          <p id="impression-hint" class="impression-hint"></p>
+        </div>
         <p id="impression-warn" class="impression-warn" role="status" hidden></p>
+        <!-- 唤醒前的确认条。
+             ★ 之所以只有它需要确认：冻结是无损的（存一份，什么都不改变），
+               唤醒是有损的（拿旧存档覆盖现在的记忆）。长得一样的两个按钮，
+               交互不能一样，否则用户会把「唤醒」当成「读出来看看」。 -->
+        <div id="impression-confirm" class="impression-confirm" hidden>
+          <p id="impression-confirm-text"></p>
+          <div class="impression-confirm-actions">
+            <button id="impression-confirm-ok" type="button"></button>
+            <button id="impression-confirm-cancel" type="button"></button>
+          </div>
+        </div>
         <!-- 正文：host 给的是 Markdown 原文，这里按纯文本安全渲染（textContent），
              绝不用 innerHTML —— 内容出自模型，插标签就是注入漏洞。 -->
         <div id="impression-body" class="impression-body" tabindex="0"></div>
@@ -149,6 +167,11 @@
             aria-haspopup="menu"
             aria-expanded="false"
           ></button>
+          <!-- 冻结 / 唤醒：四个 chip 等宽平分一行（见 .impression-foot 的 CSS）。
+               四个标签都是四字，是刻意凑的 —— 等宽后切换频率、进入等待态
+               都不会让整行跳宽。 -->
+          <button id="impression-freeze" type="button"></button>
+          <button id="impression-wake" type="button"></button>
         </footer>
         <details id="impression-history">
           <summary id="impression-history-summary"></summary>

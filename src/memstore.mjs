@@ -80,6 +80,19 @@ function wrapWithGuards(impl) {
       }
       return impl.write(path, content, label)
     },
+
+    /**
+     * ★ 片段替换（读—改—写由宿主完成，一次提交）。
+     * 校验失败返回 `{ok:false, error, detail}`，**不写盘**；成功返回 `{ok:true, applied, sha}`。
+     * `opts.dryRun` 只预演不落盘（memory_batch 用它先整体校验再执行）。
+     */
+    async patch(path, edits, label, opts) {
+      guardPath('patch', path)
+      if (typeof impl.patch !== 'function') {
+        throw new Error('memstore.patch: 当前实现没有这个方法（片段替换只支持本地引擎，请改用 write_memory）')
+      }
+      return impl.patch(path, edits, label, opts)
+    },
     async history(path, limit) {
       guardPath('history', path)
       return impl.history(path, limit)
@@ -139,6 +152,7 @@ function wrapWithGuards(impl) {
  * @property {() => Promise<Array<{path:string,size:number,mtime:number}>>} list
  * @property {(path:string) => Promise<string>} read
  * @property {(path:string, content:string) => Promise<{sha:string}>} write   ★ 原子 + 写即提交
+ * @property {(path:string, edits:Array<{old:string,new:string}>, label?:string, opts?:{expectHash?:string,dryRun?:boolean,maxBytes?:number}) => Promise<object>} patch  ★ 片段替换（唯一匹配，失败即整体拒绝）
  * @property {(path:string, limit:number) => Promise<Array<{sha:string,ts:number,message:string}>>} history
  * @property {(path:string, ref:string) => Promise<string>} fileAtRef
  * @property {(query:string) => Promise<Array<{path:string,line:number,text:string}>>} search

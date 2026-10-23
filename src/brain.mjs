@@ -63,6 +63,9 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
         name: 'write_memory',
         description:
           '覆盖写一个记忆文件（原子写 + git 提交，立刻生效）。' +
+          '**改一两处不要用这个，用 patch_memory** —— 它只让你给改动段，宿主负责读改写；' +
+          '而这个工具要你把整份内容重抄一遍，抄错一个没打算改的字就等于把记忆改坏了。' +
+          '只有「整份重构/重新分块」时才用它。' +
           '`MEMORY.md` 是常驻记忆：它每轮都会被全文注入你的上下文，所以只放最要紧、值得一直记住的事（上限 4KB）。' +
           '长期累积的经历/情绪不要往 MEMORY.md 里堆，用 append_journal。',
         parameters: {
@@ -167,6 +170,91 @@ export function buildTools({ web = false, bili = false, biliHistory = false, bil
             },
           },
           required: ['topic', 'content'],
+        },
+      },
+    },
+    // ── 改记忆：片段替换优先，别整份重写 ──
+    // 为什么（2026-10-23 实测）：write_memory 占工具调用 23.4%，而它只能整文件覆盖，
+    // 改一行要先把全文读进来、再把全文重抄一遍当输出；read_memory 里 92% 读的又是
+    // MEMORY.md —— 那份内容每轮已经全文注入系统提示了。patch 把这层机械动作收进宿主。
+    {
+      type: 'function',
+      function: {
+        name: 'patch_memory',
+        description:
+          '改记忆文件里的**一小段**：给 old（文件里现在的原文）和 new（改成什么），宿主负责读、匹配、替换、提交。' +
+          '**改记忆默认用这个**：`MEMORY.md` 每轮都在你上下文里，**不用先 read_memory**，直接给 old 就行。' +
+          'old 必须与盘上一字不差，且在文件里**只出现一次**；对不上或出现多次会被拒绝，' +
+          '拒绝时会把盘上**真实的那几行**（带行号）回给你 —— 照着它改，' +
+          '**绝对不要因为匹配不上就改用 write_memory 把整个文件重写一遍**，那等于凭记忆编内容。' +
+          'new 里只写他真说过、你真做过的事；拿不准就写「未定」。',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: '记忆仓相对路径，例如 MEMORY.md 或 about/我.md' },
+            edits: {
+              type: 'array',
+              description: '要改的几处，按顺序执行；任何一处失败则整次都不生效',
+              items: {
+                type: 'object',
+                properties: {
+                  old: { type: 'string', description: '文件里现有的原文，一字不差（至少 4 个字，且只出现一次）' },
+                  new: { type: 'string', description: '替换成什么；要删掉这段就给空串' },
+                },
+                required: ['old', 'new'],
+              },
+            },
+            expectHash: {
+              type: 'string',
+              description: '可选乐观锁：填上一次返回的 hash，对不上就拒绝（防止你按记错的内容改）',
+            },
+          },
+          required: ['path', 'edits'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'memory_batch',
+        description:
+          '一个回合里**一次**把记忆写完：journal + 事件本 + 常驻记忆一起提交，不要分几次调。' +
+          '所有 op 先预演，任何一处不合法就整批不落盘；执行中途失败会明确告诉你哪几个已经生效 —— ' +
+          '按它说的实际状态回话，不要自己推测。',
+        parameters: {
+          type: 'object',
+          properties: {
+            ops: {
+              type: 'array',
+              description: '按顺序执行的操作，最多 8 个',
+              items: {
+                type: 'object',
+                properties: {
+                  op: {
+                    type: 'string',
+                    enum: ['patch', 'append', 'write'],
+                    description: 'patch=改一段（推荐）/ append=journal 追加 / write=整份写某个文件',
+                  },
+                  path: { type: 'string', description: 'op=patch 或 write 时必填' },
+                  edits: {
+                    type: 'array',
+                    description: 'op=patch 时必填，格式同 patch_memory',
+                    items: {
+                      type: 'object',
+                      properties: { old: { type: 'string' }, new: { type: 'string' } },
+                      required: ['old', 'new'],
+                    },
+                  },
+                  content: { type: 'string', description: 'op=write 时必填：整个文件的完整内容' },
+                  text: { type: 'string', description: 'op=append 时必填：这一条写什么（第一人称）' },
+                  kind: { type: 'string', enum: JOURNAL_KINDS, description: 'op=append 时的分类' },
+                  tags: { type: 'array', items: { type: 'string' }, description: 'op=append 时可选的标签' },
+                },
+                required: ['op'],
+              },
+            },
+          },
+          required: ['ops'],
         },
       },
     },
@@ -518,7 +606,7 @@ async function askApproval({ name, args, approve, log, reason }) {
   return { ok: true }
 }
 
-async function executeTool(
+export async function executeTool(
   { name, args },
   { memstore, settings, log, approve, web, bili, biliHistory, balance, collect, policy, schedule, agentId, now = Date.now },
 ) {
@@ -621,6 +709,119 @@ async function executeTool(
               ? '内容与已保存的一致，没有产生新提交'
               : `已存进 ${path}；以后用 read_memory 就能读到，索引里也会出现它`,
         })
+      }
+      case 'patch_memory': {
+        const path = normalizeMemoryPath(args?.path)
+        const edits = Array.isArray(args?.edits) ? args.edits : null
+        if (!edits) return JSON.stringify({ ok: false, error: 'edits 必填：给 [{old, new}] 数组' })
+        if (!memstore || typeof memstore.patch !== 'function') {
+          return JSON.stringify({ ok: false, error: '片段替换没接上（当前记忆实现不支持），改用 write_memory' })
+        }
+        const limit = path === 'MEMORY.md' ? settings.get().memorySoftLimitBytes : 0
+        const r = await memstore.patch(path, edits, 'tool', { expectHash: args?.expectHash, maxBytes: limit })
+        if (r.ok) {
+          log(`[brain] patch_memory ${path} 改 ${r.applied.length} 处（行 ${r.applied.map((a) => a.line).join(',')}）`)
+        } else {
+          // 被拒也要留痕：她是否在反复拿记错的 old 硬撞，看日志一眼就知道。
+          log(`[brain] patch_memory ${path} 被拒：${r.error}`)
+        }
+        return JSON.stringify(r)
+      }
+      case 'memory_batch': {
+        const ops = Array.isArray(args?.ops) ? args.ops : null
+        if (!ops || ops.length === 0) return JSON.stringify({ ok: false, error: 'ops 必填：给一组操作' })
+        if (ops.length > 8) return JSON.stringify({ ok: false, error: '一次最多 8 个 op，再多请分两次' })
+        if (!memstore || typeof memstore.patch !== 'function') {
+          return JSON.stringify({ ok: false, error: '批量写没接上（当前记忆实现不支持），改用 write_memory' })
+        }
+
+        // ① 先全量预演。任何一处不合法 ⇒ 整批不落盘（绝不留半截状态让下轮猜）。
+        const plan = []
+        for (let i = 0; i < ops.length; i++) {
+          const op = ops[i] || {}
+          const at = i + 1
+          const opType = String(op.op ?? '')
+          if (opType === 'patch') {
+            const path = normalizeMemoryPath(op.path)
+            const limit = path === 'MEMORY.md' ? settings.get().memorySoftLimitBytes : 0
+            const pre = await memstore.patch(path, op.edits, 'preview', { dryRun: true, maxBytes: limit })
+            if (!pre.ok) {
+              return JSON.stringify({
+                ok: false,
+                applied: [],
+                error: `第 ${at} 个 op（patch ${path}）预演失败：${pre.error}`,
+                detail: pre.detail,
+                note: '整批没有落盘，什么都没改',
+              })
+            }
+            plan.push({ at, opType, path, edits: op.edits })
+          } else if (opType === 'append') {
+            const text = String(op.text ?? '').trim()
+            if (!text) return JSON.stringify({ ok: false, applied: [], error: `第 ${at} 个 op（append）text 为空` })
+            const kind = JOURNAL_KINDS.includes(op.kind) ? op.kind : 'fact'
+            const tags = Array.isArray(op.tags) ? op.tags.map((t) => String(t)).slice(0, 8) : []
+            plan.push({ at, opType, text, kind, tags })
+          } else if (opType === 'write') {
+            const path = normalizeMemoryPath(op.path)
+            const content = op.content
+            if (typeof content !== 'string' || content.trim() === '') {
+              return JSON.stringify({ ok: false, applied: [], error: `第 ${at} 个 op（write ${path}）content 为空` })
+            }
+            if (path === 'MEMORY.md') {
+              const limit = settings.get().memorySoftLimitBytes
+              const bytes = Buffer.byteLength(content, 'utf8')
+              if (bytes > limit) {
+                return JSON.stringify({ ok: false, applied: [], error: `第 ${at} 个 op（write MEMORY.md）${bytes}B 超过上限 ${limit}B` })
+              }
+            }
+            plan.push({ at, opType, path, content })
+          } else {
+            return JSON.stringify({
+              ok: false,
+              applied: [],
+              error: `第 ${at} 个 op 的 op 值不认识：${JSON.stringify(opType)}（只支持 patch / append / write）`,
+            })
+          }
+        }
+
+        // ② 顺序执行。中途失败必须把「哪几个已经生效」说清楚 —— 含糊就是幻觉的温床。
+        const done = []
+        for (const item of plan) {
+          try {
+            if (item.opType === 'patch') {
+              const limit = item.path === 'MEMORY.md' ? settings.get().memorySoftLimitBytes : 0
+              const r = await memstore.patch(item.path, item.edits, 'tool', { maxBytes: limit })
+              if (!r.ok) {
+                log(`[brain] memory_batch 第 ${item.at} 个 op 失败：${r.error}`)
+                return JSON.stringify({
+                  ok: false,
+                  applied: done,
+                  error: `第 ${item.at} 个 op（patch ${item.path}）失败：${r.error}`,
+                  detail: r.detail,
+                  note: '前面已生效的不会回滚；按 applied 里的实际状态回话，别猜',
+                })
+              }
+              done.push({ at: item.at, op: 'patch', path: item.path, lines: r.applied.map((a) => a.line) })
+            } else if (item.opType === 'append') {
+              const r = await memstore.appendJournal({ text: item.text, kind: item.kind, tags: item.tags })
+              done.push({ at: item.at, op: 'append', path: r.path })
+            } else {
+              const r = await memstore.write(item.path, item.content, 'tool')
+              done.push({ at: item.at, op: 'write', path: item.path, changed: r.changed !== false })
+            }
+          } catch (err) {
+            log(`[brain] memory_batch 第 ${item.at} 个 op 抛错：${err.message}`)
+            return JSON.stringify({
+              ok: false,
+              applied: done,
+              error: `第 ${item.at} 个 op 抛错：${err.message}`,
+              note: '前面已生效的不会回滚；按 applied 里的实际状态回话，别猜',
+            })
+          }
+        }
+
+        log(`[brain] memory_batch ${done.length} 个 op 全部生效`)
+        return JSON.stringify({ ok: true, count: done.length, applied: done, message: `一次写完 ${done.length} 处` })
       }
       // ── 手：读全盘免审批、写按三级策略、找文件免审批 ──
       case 'read_file': {
